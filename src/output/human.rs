@@ -37,7 +37,10 @@ pub fn print_check(out: &CheckOutput) {
             "○ not yet".dimmed().to_string()
         };
         let remaining = if !rule.triggered && rule.remaining_seconds > 0 {
-            format!("  ({} remaining)", format_seconds_as_str(rule.remaining_seconds))
+            format!(
+                "  ({} remaining)",
+                format_seconds_as_str(rule.remaining_seconds)
+            )
         } else {
             String::new()
         };

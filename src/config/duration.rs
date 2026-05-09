@@ -76,11 +76,11 @@ impl Duration {
             )));
         }
         let unit = match unit_char {
-            "h" => DurationUnit::Hours,
-            "d" => DurationUnit::Days,
-            "w" => DurationUnit::Weeks,
-            "m" => DurationUnit::Months,
-            "y" => DurationUnit::Years,
+            "h" | "hour"  | "hours"  => DurationUnit::Hours,
+            "d" | "day"   | "days"   => DurationUnit::Days,
+            "w" | "week"  | "weeks"  => DurationUnit::Weeks,
+            "m" | "month" | "months" => DurationUnit::Months,
+            "y" | "year"  | "years"  => DurationUnit::Years,
             other => {
                 return Err(FrostxError::Config(format!(
                     "invalid duration unit '{other}' in '{s}': expected h, d, w, m, or y"
@@ -110,7 +110,7 @@ impl fmt::Display for Duration {
             DurationUnit::Hours => "h",
             DurationUnit::Days => "d",
             DurationUnit::Weeks => "w",
-            DurationUnit::Months => "m",
+            DurationUnit::Months => "mon",
             DurationUnit::Years => "y",
         };
         write!(f, "{}{}", self.value, unit)

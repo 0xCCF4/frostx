@@ -74,19 +74,22 @@ fn default_config() -> ActionConfig {
 
 fn default_rules() -> Vec<Rule> {
     use crate::config::duration::{Duration, DurationUnit};
-    vec![Rule {
-        after: Duration {
-            value: 3,
-            unit: DurationUnit::Months,
+    vec![
+        Rule {
+            after: Duration {
+                value: 3,
+                unit: DurationUnit::Months,
+            },
+            actions: vec!["vcs.check_clean".into(), "vcs.check_pushed".into()],
         },
-        actions: vec!["vcs.check_clean".into(), "vcs.check_pushed".into()],
-    }, Rule {
-        after: Duration {
-            value: 6,
-            unit: DurationUnit::Months,
+        Rule {
+            after: Duration {
+                value: 6,
+                unit: DurationUnit::Months,
+            },
+            actions: vec!["notify.review_project".into()],
         },
-        actions: vec!["notify.review_project".into()],
-    }]
+    ]
 }
 
 /// Load a project config from `path` (or from the config override in `opts`).

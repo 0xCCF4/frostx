@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-const EXTRA_HELP: &'static str = "frostx.toml(5), frostx-actions(5), frostx-includes(5), frostx-state(5)";
+const EXTRA_HELP: &'static str =
+    "frostx.toml(5), frostx-actions(5), frostx-includes(5), frostx-state(5)";
 
 /// frostx - project lifecycle manager.
 ///

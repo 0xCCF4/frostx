@@ -1,8 +1,8 @@
 use crate::error::FrostxError;
+use crate::output::human;
 use chrono::{DateTime, Utc};
 use std::path::Path;
 use walkdir::WalkDir;
-use crate::output::human;
 
 /// Result of scanning a project directory for inactivity.
 #[derive(Debug, Clone)]
