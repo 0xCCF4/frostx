@@ -1,6 +1,13 @@
-use super::{Action, ActionContext, ActionKind, ActionOutcome};
+use super::{Action, ActionContext, ActionFactory, ActionKind, ActionOutcome};
 use crate::backup;
 use crate::error::FrostxError;
+
+/// Static registration of all backup actions.
+pub const REGISTRY: &[(&str, ActionFactory)] = &[
+    ("backup.check", |config| Ok(Box::new(Check::new(config)?))),
+    ("backup.upload", |config| Ok(Box::new(Upload::new(config)?))),
+    ("backup.verify", |config| Ok(Box::new(Verify::new(config)?))),
+];
 use std::path::PathBuf;
 
 fn archive_path_for(ctx: &ActionContext<'_>) -> Option<PathBuf> {

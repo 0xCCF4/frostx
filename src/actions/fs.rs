@@ -1,7 +1,12 @@
-use super::{Action, ActionContext, ActionKind, ActionOutcome};
+use super::{Action, ActionContext, ActionFactory, ActionKind, ActionOutcome};
 use crate::config::project::ProjectConfig;
 use crate::error::FrostxError;
 use std::path::PathBuf;
+
+/// Static registration of all fs actions.
+pub const REGISTRY: &[(&str, ActionFactory)] = &[("fs.clean_artifacts", |config| {
+    Ok(Box::new(CleanArtifacts::new(config)))
+})];
 
 /// Delete common build artifact directories before archiving.
 pub struct CleanArtifacts {

@@ -117,12 +117,14 @@ methods: `ActionOutcome::ok`, `::failed`, `::skipped`, `::dry_run`.
 
 #### Registration
 
-`actions::create(name, config)` is the single dispatch point. Adding a new action requires only:
+Each action module owns a `pub const REGISTRY: &[(&str, ActionFactory)]` that maps its action names to factory
+closures. `actions::create(name, config)` iterates `ALL_REGISTRIES` (a list of all module registries defined in
+`actions/mod.rs`) before falling back to dynamic-prefix handling for `hook.*` and `notify.*`.
+
+Adding a new static action requires only:
 
 1. Implementing `Action` in a source file under `src/actions/`.
-2. Adding a `match` arm in `create()`.
-
-No other code needs to change.
+2. Adding an entry to that module's `REGISTRY` constant.
 
 ---
 

@@ -1,5 +1,12 @@
-use super::{Action, ActionContext, ActionKind, ActionOutcome};
+use super::{Action, ActionContext, ActionFactory, ActionKind, ActionOutcome};
 use crate::error::FrostxError;
+
+/// Static registration of all jj actions.
+pub const REGISTRY: &[(&str, ActionFactory)] = &[
+    ("jj.check_clean", |_| Ok(Box::new(CheckClean))),
+    ("jj.check_pushed", |_| Ok(Box::new(CheckPushed))),
+    ("jj.bookmark", |_| Ok(Box::new(Bookmark))),
+];
 use chrono::Utc;
 use std::process::Command;
 

@@ -26,6 +26,20 @@ use crate::config::project::ProjectConfig;
 use crate::error::FrostxError;
 use std::path::Path;
 
+/// Factory function type: creates a [`Box<dyn Action>`] from project config.
+pub type ActionFactory = fn(&ProjectConfig) -> Result<Box<dyn Action>, FrostxError>;
+
+/// All per-module static action registries.
+const ALL_REGISTRIES: &[&[(&str, ActionFactory)]] = &[
+    git::REGISTRY,
+    jj::REGISTRY,
+    vcs::REGISTRY,
+    fs::REGISTRY,
+    archive::REGISTRY,
+    backup::REGISTRY,
+    local::REGISTRY,
+];
+
 /// Whether an action is a check or a mutation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActionKind {
@@ -103,76 +117,58 @@ pub trait Action: Send + Sync {
 
 /// Create a boxed [`Action`] from its name string.
 ///
-/// This is the single registration point - adding a new action requires only
-/// adding a new `match` arm here and implementing the `Action` trait.
-///
-/// Static actions are registered below to the array as well.
+/// Looks up static actions in the per-module registries first, then handles
+/// dynamic categories (`hook.<name>`, `notify.<name>`). Adding a new static
+/// action only requires a new entry in the module's `REGISTRY` — no changes
+/// here.
 ///
 /// # Errors
 ///
-/// Returns [`FrostxError::UnknownAction`] if `name` is not registered, or a config
-/// error if the action requires config that is absent.
+/// Returns [`FrostxError::UnknownAction`] if `name` is not registered, or a
+/// config error if the action requires config that is absent.
 pub fn create(name: &str, config: &ProjectConfig) -> Result<Box<dyn Action>, FrostxError> {
-    match name {
-        "git.check_clean" => Ok(Box::new(git::CheckClean)),
-        "git.check_pushed" => Ok(Box::new(git::CheckPushed)),
-        "git.clean" => Ok(Box::new(git::Clean)),
-        "git.tag" => Ok(Box::new(git::Tag)),
-        "jj.check_clean" => Ok(Box::new(jj::CheckClean)),
-        "jj.check_pushed" => Ok(Box::new(jj::CheckPushed)),
-        "jj.bookmark" => Ok(Box::new(jj::Bookmark)),
-        "vcs.check_clean" => Ok(Box::new(vcs::CheckClean)),
-        "vcs.check_pushed" => Ok(Box::new(vcs::CheckPushed)),
-        "vcs.mark" => Ok(Box::new(vcs::Mark)),
-        "fs.clean_artifacts" => Ok(Box::new(fs::CleanArtifacts::new(config))),
-        "archive.tar_gz" => Ok(Box::new(archive::TarGz::new(config))),
-        "backup.check" => Ok(Box::new(backup::Check::new(config)?)),
-        "backup.upload" => Ok(Box::new(backup::Upload::new(config)?)),
-        "backup.verify" => Ok(Box::new(backup::Verify::new(config)?)),
-        "local.delete" => Ok(Box::new(local::Delete)),
-        name if name.starts_with("notify.") => {
-            let notify_name = &name["notify.".len()..];
-            let notify_cfg = config.config.notifies.get(notify_name).ok_or_else(|| {
-                FrostxError::Config(format!(
-                    "notify '{notify_name}' not defined in [config.notify.{notify_name}]"
-                ))
-            })?;
-            Ok(Box::new(notify::Notify::new(notify_cfg.clone())))
+    for registry in ALL_REGISTRIES {
+        for (action_name, factory) in *registry {
+            if *action_name == name {
+                return factory(config);
+            }
         }
-        name if name.starts_with("hook.") => {
-            let hook_name = &name["hook.".len()..];
-            let hook_cfg = config.config.hooks.get(hook_name).ok_or_else(|| {
-                FrostxError::Config(format!(
-                    "hook '{hook_name}' not defined in [config.hook.{hook_name}]"
-                ))
-            })?;
-            Ok(Box::new(hook::Hook::new(hook_name, hook_cfg.clone())))
-        }
-        _ => Err(FrostxError::UnknownAction(
-            crate::diagnostics::unknown_action_message(name),
-        )),
     }
+    if let Some(notify_name) = name.strip_prefix("notify.") {
+        let notify_cfg = config.config.notifies.get(notify_name).ok_or_else(|| {
+            FrostxError::Config(format!(
+                "notify '{notify_name}' not defined in [config.notify.{notify_name}]"
+            ))
+        })?;
+        return Ok(Box::new(notify::Notify::new(notify_cfg.clone())));
+    }
+    if let Some(hook_name) = name.strip_prefix("hook.") {
+        let hook_cfg = config.config.hooks.get(hook_name).ok_or_else(|| {
+            FrostxError::Config(format!(
+                "hook '{hook_name}' not defined in [config.hook.{hook_name}]"
+            ))
+        })?;
+        return Ok(Box::new(hook::Hook::new(hook_name, hook_cfg.clone())));
+    }
+    Err(FrostxError::UnknownAction(
+        crate::diagnostics::unknown_action_message(name),
+    ))
 }
 
 /// Every statically registered action name, sorted alphabetically.
 ///
 /// Dynamic action categories (`hook.<name>`, `notify.<name>`, `group.<name>`)
-/// are user-defined and not listed here.
-pub const ALL_STATIC_ACTIONS: &[&str] = &[
-    "git.check_clean",
-    "git.check_pushed",
-    "git.clean",
-    "git.tag",
-    "jj.check_clean",
-    "jj.check_pushed",
-    "jj.bookmark",
-    "vcs.check_clean",
-    "vcs.check_pushed",
-    "vcs.mark",
-    "fs.clean_artifacts",
-    "archive.tar_gz",
-    "backup.check",
-    "backup.upload",
-    "backup.verify",
-    "local.delete",
-];
+/// are user-defined and not listed here. The list is derived from all module
+/// registries so it stays in sync automatically.
+#[must_use]
+pub fn all_static_actions() -> &'static [&'static str] {
+    static CACHE: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| {
+        let mut names: Vec<&'static str> = ALL_REGISTRIES
+            .iter()
+            .flat_map(|r| r.iter().map(|(n, _)| *n))
+            .collect();
+        names.sort_unstable();
+        names
+    })
+}

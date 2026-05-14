@@ -60,8 +60,16 @@ pub fn execute(args: &InitArgs, opts: &FrostxOpts) -> Result<InitOutput, FrostxE
         include: args.includes.clone(),
         template: args.template.clone(),
         groups: HashMap::new(),
-        config: if (args.includes.is_empty()) {default_config()} else {ActionConfig::default()},
-        rules: if (args.includes.is_empty()) {default_rules()} else {Vec::new()},
+        config: if args.includes.is_empty() {
+            default_config()
+        } else {
+            ActionConfig::default()
+        },
+        rules: if args.includes.is_empty() {
+            default_rules()
+        } else {
+            Vec::new()
+        },
     };
 
     config::write_initial(path, &cfg)?;

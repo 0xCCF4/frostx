@@ -134,23 +134,34 @@ Use `ActionOutcome::ok`, `::failed`, `::skipped`, or `::dry_run` to construct ou
 
 ### Step 2 - register the name
 
-Add a single `match` arm in `src/actions/mod.rs` inside the `create` function:
+Add an entry to the `REGISTRY` constant in the same module file:
 
 ```rust
-"mycat.my_check" => Ok(Box::new(mycat::MyNewCheck)),
+use super::ActionFactory;
+
+pub const REGISTRY: &[(&str, ActionFactory)] = &[
+    // existing entries ...
+    ("mycat.my_check", |_| Ok(Box::new(MyNewCheck))),
+];
 ```
 
-For actions that are user-named (like `hook.<name>` and `notify.<name>`), use a guard arm instead:
+If the action needs config at construction time, pass `config` to the constructor:
 
 ```rust
-name if name.starts_with("mycat.") => {
-let item_name = & name["mycat.".len()..];
-let cfg = config.config.mycats.get(item_name).ok_or_else(| | {
-FrostxError::Config(format ! ("mycat '{item_name}' not defined"))
-}) ?;
-Ok(Box::new(mycat::MyAction::new(cfg.clone())))
-}
+("mycat.my_action", |config| Ok(Box::new(MyAction::new(config)))),
 ```
+
+If the constructor is fallible (returns `Result`), propagate the error with `?`:
+
+```rust
+("mycat.my_action", |config| Ok(Box::new(MyAction::new(config)?))),
+```
+
+If you create a new module category, add its `REGISTRY` to the `ALL_REGISTRIES` list in `src/actions/mod.rs`. That is
+the only change needed outside the new module.
+
+For **dynamic** action categories (user-named like `hook.<name>`) add a `strip_prefix` branch in `create()` in
+`src/actions/mod.rs` instead of a `REGISTRY` entry.
 
 That's the entire registration. No changes needed elsewhere in the pipeline or CLI.
 

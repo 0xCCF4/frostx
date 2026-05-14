@@ -1,5 +1,13 @@
-use super::{Action, ActionContext, ActionKind, ActionOutcome};
+use super::{Action, ActionContext, ActionFactory, ActionKind, ActionOutcome};
 use crate::error::FrostxError;
+
+/// Static registration of all git actions.
+pub const REGISTRY: &[(&str, ActionFactory)] = &[
+    ("git.check_clean", |_| Ok(Box::new(CheckClean))),
+    ("git.check_pushed", |_| Ok(Box::new(CheckPushed))),
+    ("git.clean", |_| Ok(Box::new(Clean))),
+    ("git.tag", |_| Ok(Box::new(Tag))),
+];
 use chrono::Utc;
 use std::process::Command;
 

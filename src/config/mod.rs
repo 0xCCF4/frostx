@@ -97,7 +97,7 @@ pub fn validate(cfg: &ProjectConfig) -> ValidationResult {
                         "{loc}: notify '{notify_name}' not defined in [config.notify.{notify_name}]"
                     ));
                 }
-            } else if !actions::ALL_STATIC_ACTIONS.contains(&action.as_str()) {
+            } else if !actions::all_static_actions().contains(&action.as_str()) {
                 errors.push(format!(
                     "{loc}: {}",
                     diagnostics::unknown_action_hint(action)

@@ -1,4 +1,4 @@
-use super::{Action, ActionContext, ActionKind, ActionOutcome};
+use super::{Action, ActionContext, ActionFactory, ActionKind, ActionOutcome};
 use crate::config::project::{Compression, ProjectConfig};
 use crate::error::FrostxError;
 use chrono::Utc;
@@ -6,6 +6,10 @@ use flate2::write::GzEncoder;
 use flate2::Compression as GzCompression;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+
+/// Static registration of all archive actions.
+pub const REGISTRY: &[(&str, ActionFactory)] =
+    &[("archive.tar_gz", |config| Ok(Box::new(TarGz::new(config))))];
 
 /// Create a compressed archive of the project directory.
 pub struct TarGz {

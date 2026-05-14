@@ -1,5 +1,12 @@
-use super::{Action, ActionContext, ActionKind, ActionOutcome};
+use super::{Action, ActionContext, ActionFactory, ActionKind, ActionOutcome};
 use crate::error::FrostxError;
+
+/// Static registration of all vcs actions.
+pub const REGISTRY: &[(&str, ActionFactory)] = &[
+    ("vcs.check_clean", |_| Ok(Box::new(CheckClean))),
+    ("vcs.check_pushed", |_| Ok(Box::new(CheckPushed))),
+    ("vcs.mark", |_| Ok(Box::new(Mark))),
+];
 
 /// Uniform interface that each VCS backend must provide for the shared `vcs.*` actions.
 ///

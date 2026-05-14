@@ -36,7 +36,7 @@ fn levenshtein(a: &str, b: &str) -> usize {
 #[must_use]
 pub fn suggest_actions(name: &str) -> Vec<&'static str> {
     let threshold = (name.len() / 3 + 2).min(6);
-    let mut scored: Vec<(&'static str, usize)> = actions::ALL_STATIC_ACTIONS
+    let mut scored: Vec<(&'static str, usize)> = actions::all_static_actions()
         .iter()
         .map(|&a| (a, levenshtein(name, a)))
         .filter(|(_, d)| *d <= threshold)
@@ -73,14 +73,10 @@ pub fn unknown_action_message(name: &str) -> String {
     }
 
     // Compact three-column list of all static actions.
-    let col_w = actions::ALL_STATIC_ACTIONS
-        .iter()
-        .map(|s| s.len())
-        .max()
-        .unwrap_or(0)
-        + 2;
+    let all = actions::all_static_actions();
+    let col_w = all.iter().map(|s| s.len()).max().unwrap_or(0) + 2;
     msg.push_str("\n\n  available actions:");
-    for (i, action) in actions::ALL_STATIC_ACTIONS.iter().enumerate() {
+    for (i, action) in all.iter().enumerate() {
         if i % 3 == 0 {
             msg.push_str("\n    ");
         }

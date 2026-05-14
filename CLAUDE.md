@@ -92,12 +92,13 @@ actions = [
 
 ### Extensibility
 
-Actions are the primary extension point of frostx. Adding a new action requires only:
+Actions are the primary extension point of frostx. Adding a new static action requires only:
 
 1. Implementing the `Action` trait in a new file under `src/actions/`.
-2. Registering the action name in the action registry (single place).
+2. Adding an entry to that module's `pub const REGISTRY: &[(&str, ActionFactory)]`.
 
-No changes to the pipeline engine, config parser, or CLI should be needed.
+If the action belongs to a new module category, add the module's `REGISTRY` to `ALL_REGISTRIES` in
+`src/actions/mod.rs`. No changes to the pipeline engine, config parser, or CLI should be needed.
 
 ### Crate / module layout (intended)
 
