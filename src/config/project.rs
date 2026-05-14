@@ -9,6 +9,10 @@ pub struct ProjectConfig {
     /// Stable project identifier, assigned on `frostx init`.
     pub id: Uuid,
 
+    /// Optional human-readable project name shown in output and logs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+
     /// Include sources - resolved before this struct is returned to callers.
     #[serde(default)]
     pub include: Vec<String>,
@@ -237,6 +241,7 @@ mod tests {
     fn minimal_config(id: Uuid) -> ProjectConfig {
         ProjectConfig {
             id,
+            name: None,
             include: vec![],
             groups: HashMap::new(),
             config: ActionConfig::default(),

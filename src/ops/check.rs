@@ -27,9 +27,10 @@ pub fn gather(path: &Path, opts: &FrostxOpts) -> Result<CheckOutput, FrostxError
     let scan = scanner::scan(path)?;
     let outcomes = pipeline::evaluate(&config, &state, scan.last_modified)?;
 
-    let project_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
+    let project_name = config
+        .name
+        .as_deref()
+        .or_else(|| state.project_path.file_name().and_then(|n| n.to_str()))
         .unwrap_or("unknown");
 
     let out = build_check_output(

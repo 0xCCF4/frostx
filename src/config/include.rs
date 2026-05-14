@@ -53,6 +53,7 @@ pub fn resolve_includes(
 
     Ok(ProjectConfig {
         id: base.id,
+        name: base.name,
         include: base.include,
         groups: merged_groups,
         config: merged_config,
@@ -130,6 +131,7 @@ mod tests {
     fn base_config() -> ProjectConfig {
         ProjectConfig {
             id: Uuid::new_v4(),
+            name: None,
             include: vec![],
             groups: HashMap::new(),
             config: ActionConfig::default(),

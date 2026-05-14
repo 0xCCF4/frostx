@@ -42,3 +42,5 @@ List of features, I would like to add, in no particular order. Not a roadmap, ju
   `frostx.toml`, to detect changes and reset completion if needed.
 - [ ] all easy registration for new urls besides rsync, ssh, via trait abstraction?
 - [ ] Fix all `cargo clippy --all-targets -- -D warnings -W clippy::pedantic`
+- [ ] if the same file is included twice, then skip it the second+ time
+- [ ] update last scan, when project was successfully loaded

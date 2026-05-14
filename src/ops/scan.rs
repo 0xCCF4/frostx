@@ -54,9 +54,10 @@ pub fn execute(args: &ScanArgs, opts: &FrostxOpts) -> Result<Vec<CheckOutput>, F
             continue;
         }
 
-        let project_name = project_dir
-            .file_name()
-            .and_then(|n| n.to_str())
+        let project_name = cfg
+            .name
+            .as_deref()
+            .or_else(|| project_dir.file_name().and_then(|n| n.to_str()))
             .unwrap_or("unknown");
 
         results.push(build_check_output(

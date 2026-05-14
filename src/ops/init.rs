@@ -49,6 +49,7 @@ pub fn execute(args: &InitArgs, opts: &FrostxOpts) -> Result<InitOutput, FrostxE
     let uuid = Uuid::new_v4();
     let cfg = ProjectConfig {
         id: uuid,
+        name: None,
         include: args.includes.clone(),
         groups: HashMap::new(),
         config: default_config(),

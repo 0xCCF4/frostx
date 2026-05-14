@@ -133,6 +133,7 @@ mod tests {
     fn make_config_with_targets(targets: Vec<String>) -> crate::config::project::ProjectConfig {
         crate::config::project::ProjectConfig {
             id: Uuid::new_v4(),
+            name: None,
             include: vec![],
             groups: HashMap::new(),
             config: ActionConfig {

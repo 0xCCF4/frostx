@@ -306,6 +306,7 @@ mod tests {
     fn make_config(rules: Vec<Rule>) -> ProjectConfig {
         ProjectConfig {
             id: Uuid::new_v4(),
+            name: None,
             include: vec![],
             groups: HashMap::new(),
             config: ActionConfig::default(),
@@ -362,6 +363,7 @@ mod tests {
         );
         let cfg = ProjectConfig {
             id: Uuid::new_v4(),
+            name: None,
             include: vec![],
             groups: HashMap::new(),
             config: ActionConfig {

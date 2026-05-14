@@ -136,6 +136,7 @@ mod tests {
     fn minimal_cfg() -> ProjectConfig {
         ProjectConfig {
             id: Uuid::new_v4(),
+            name: None,
             include: vec![],
             groups: HashMap::new(),
             config: ActionConfig::default(),

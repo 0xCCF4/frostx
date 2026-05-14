@@ -21,6 +21,19 @@ value manually - doing so orphans the state file. To reassign (e.g. after copyin
 
 ---
 
+### `name`
+
+```toml
+name = "My Awesome Project"
+```
+
+Optional human-readable project name shown in output and logs. When set, it is used instead of the directory name.
+
+**Type:** string
+**Required:** no
+
+---
+
 ### `include`
 
 ```toml
@@ -181,6 +194,7 @@ The command is run via `sh -c`. Exit code `0` is success; any other code fails t
 
 ```toml
 id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+name = "My Awesome Project"
 
 include = ["archive-after-1y"]
 
