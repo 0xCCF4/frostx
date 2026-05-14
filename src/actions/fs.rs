@@ -136,6 +136,7 @@ mod tests {
             name: None,
             description: None,
             include: vec![],
+            template: std::collections::HashMap::new(),
             groups: HashMap::new(),
             config: ActionConfig {
                 fs: Some(FsConfig {

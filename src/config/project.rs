@@ -21,6 +21,13 @@ pub struct ProjectConfig {
     #[serde(default)]
     pub include: Vec<String>,
 
+    /// Template variable values for `{{key}}` substitution in included files.
+    ///
+    /// Keys must be alphanumeric or underscores. Include files may reference
+    /// these via `{{key}}` placeholders, which are replaced before TOML parsing.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub template: HashMap<String, String>,
+
     /// Named action groups, keyed by group name (without the `group.` prefix).
     #[serde(default, rename = "group")]
     pub groups: HashMap<String, Group>,
@@ -248,6 +255,7 @@ mod tests {
             name: None,
             description: None,
             include: vec![],
+            template: HashMap::new(),
             groups: HashMap::new(),
             config: ActionConfig::default(),
             rules: vec![],

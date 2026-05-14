@@ -11,6 +11,7 @@ use frostx::ops::{
     FrostxOpts,
 };
 use frostx::output::{human, json, OutputFormat, RunActionOutput, FROSTX_VERSION};
+use frostx::prompt;
 use std::path::PathBuf;
 use std::process;
 
@@ -56,9 +57,29 @@ fn main() {
             include,
             force,
         } => {
+            // Run the interactive questionnaire when stdin is a TTY and --yes
+            // was not passed. --json implies non-interactive (machine-readable).
+            let interactive = !opts.yes && !cli.json;
+            let questionnaire =
+                prompt::run_init_questionnaire(&include, &opts.library_dir, interactive);
+            let (init_name, init_description, init_includes, init_template) = match questionnaire {
+                Ok(Some(q)) => (q.name, q.description, q.includes, q.template),
+                Ok(None) => (None, None, include, std::collections::HashMap::new()),
+                Err(e) => {
+                    emit_error_msg(
+                        &format!("questionnaire error: {e}"),
+                        exit_code::ERROR,
+                        format,
+                    );
+                    process::exit(exit_code::ERROR);
+                }
+            };
             let args = InitArgs {
                 path,
-                includes: include,
+                includes: init_includes,
+                name: init_name,
+                description: init_description,
+                template: init_template,
                 force,
             };
             match ops::init::execute(&args, &opts) {

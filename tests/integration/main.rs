@@ -9,3 +9,4 @@ mod project_name;
 mod projects;
 mod rule_names;
 mod scan;
+mod template;

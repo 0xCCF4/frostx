@@ -93,6 +93,53 @@ include = ["company-defaults"]
 server = "rsync://my-backup.example.com/projects"
 ```
 
+## Template Variables
+
+Include files may contain `{{variable_name}}` placeholders that are replaced with values from the `[template]` table in
+`frostx.toml` before the file is parsed as TOML.
+
+### Defining placeholders in a library entry
+
+`$FROSTX_LIBRARY/team-backup.toml`:
+
+```toml
+[config.backup]
+server = "{{backup_server}}"
+
+[[rule]]
+after = "90d"
+actions = ["backup.check"]
+
+[[rule]]
+after = "365d"
+actions = ["backup.upload", "backup.verify", "local.delete"]
+```
+
+### Providing values in `frostx.toml`
+
+```toml
+id = "uuid-v4"
+
+include = ["team-backup"]
+
+[template]
+backup_server = "rsync://myteam-backup.example.com/projects"
+```
+
+When frostx loads this project, it replaces `{{backup_server}}` with `"rsync://myteam-backup.example.com/projects"` and
+parses the resulting TOML as the include fragment.
+
+### Rules
+
+- Variable names must consist of ASCII alphanumeric characters and underscores only.
+- If an included file contains a `{{variable}}` placeholder with no matching entry in `[template]`, frostx exits with an
+  error.
+- The `[template]` table is only valid in `frostx.toml` - included files cannot define or override template values.
+- `frostx init` automatically prompts for template variable values when the selected library entries contain placeholders
+  (skipped when `--yes` or `--json` is passed).
+
+---
+
 ## Example: Library Entry
 
 `$FROSTX_LIBRARY/archive-after-1y.toml`:

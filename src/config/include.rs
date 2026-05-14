@@ -3,6 +3,34 @@ use crate::error::FrostxError;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Extract all `{{variable_name}}` placeholders from `content`.
+///
+/// Only names consisting of ASCII alphanumeric characters or underscores are
+/// recognized as valid template variables. Duplicates are removed; order of
+/// first appearance is preserved.
+#[must_use]
+pub fn extract_template_vars(content: &str) -> Vec<String> {
+    let mut vars: Vec<String> = Vec::new();
+    let mut pos = 0;
+    while let Some(rel) = content[pos..].find("{{") {
+        let inner_start = pos + rel + 2;
+        match content[inner_start..].find("}}") {
+            None => break,
+            Some(inner_len) => {
+                let name = content[inner_start..inner_start + inner_len].trim();
+                if !name.is_empty()
+                    && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    && !vars.iter().any(|v| v == name)
+                {
+                    vars.push(name.to_owned());
+                }
+                pos = inner_start + inner_len + 2;
+            }
+        }
+    }
+    vars
+}
+
 /// Resolve all `include` entries in `base`, merge them in, and return the final config.
 ///
 /// `project_dir` is the directory containing `frostx.toml`; relative includes
@@ -28,7 +56,7 @@ pub fn resolve_includes(
 
     for source in &includes {
         let path = resolve_source(source, project_dir, library_dir);
-        let fragment = load_fragment(&path).map_err(|e| FrostxError::Include {
+        let fragment = load_fragment(&path, &base.template).map_err(|e| FrostxError::Include {
             path: source.clone(),
             message: e.to_string(),
         })?;
@@ -56,6 +84,7 @@ pub fn resolve_includes(
         name: base.name,
         description: base.description,
         include: base.include,
+        template: base.template,
         groups: merged_groups,
         config: merged_config,
         rules: merged_rules,
@@ -84,10 +113,37 @@ struct Fragment {
     rules: Vec<Rule>,
 }
 
-fn load_fragment(path: &Path) -> Result<Fragment, FrostxError> {
-    let content = std::fs::read_to_string(path)?;
+fn load_fragment(path: &Path, template: &HashMap<String, String>) -> Result<Fragment, FrostxError> {
+    let raw = std::fs::read_to_string(path)?;
+    let content = apply_template(&raw, template, path)?;
     toml::from_str(&content)
         .map_err(|e| FrostxError::Config(crate::diagnostics::format_toml_error(&e, path)))
+}
+
+/// Replace every `{{key}}` occurrence in `raw` with the corresponding value
+/// from `template`. Returns an error if any placeholder remains unresolved.
+fn apply_template(
+    raw: &str,
+    template: &HashMap<String, String>,
+    path: &Path,
+) -> Result<String, FrostxError> {
+    let mut content = raw.to_owned();
+    for (key, value) in template {
+        let placeholder = "{{".to_owned() + key + "}}";
+        content = content.replace(&placeholder, value);
+    }
+    // Detect unresolved placeholders.
+    if let Some(start) = content.find("{{") {
+        let after = &content[start + 2..];
+        let name = after
+            .find("}}")
+            .map_or("<unknown>", |end| after[..end].trim());
+        return Err(FrostxError::Config(format!(
+            "{}: unresolved template variable `{{{{{name}}}}}` - add it to the `[template]` section of frostx.toml",
+            path.display(),
+        )));
+    }
+    Ok(content)
 }
 
 /// Merge `src` into `dst`, with `dst` taking precedence (first-write-wins).
@@ -101,8 +157,14 @@ fn merge_config(dst: &mut ActionConfig, src: ActionConfig) {
     if dst.fs.is_none() {
         dst.fs = src.fs;
     }
+    if dst.vcs.is_none() {
+        dst.vcs = src.vcs;
+    }
     for (k, v) in src.hooks {
         dst.hooks.entry(k).or_insert(v);
+    }
+    for (k, v) in src.notifies {
+        dst.notifies.entry(k).or_insert(v);
     }
 }
 
@@ -117,8 +179,14 @@ fn merge_config_local(dst: &mut ActionConfig, local: ActionConfig) {
     if local.fs.is_some() {
         dst.fs = local.fs;
     }
+    if local.vcs.is_some() {
+        dst.vcs = local.vcs;
+    }
     for (k, v) in local.hooks {
         dst.hooks.insert(k, v);
+    }
+    for (k, v) in local.notifies {
+        dst.notifies.insert(k, v);
     }
 }
 
@@ -135,6 +203,7 @@ mod tests {
             name: None,
             description: None,
             include: vec![],
+            template: HashMap::new(),
             groups: HashMap::new(),
             config: ActionConfig::default(),
             rules: vec![],
@@ -233,5 +302,72 @@ server = "rsync://included-server/"
         let mut cfg = base_config();
         cfg.include = vec!["nonexistent".into()];
         assert!(resolve_includes(cfg, tmp.path(), tmp.path()).is_err());
+    }
+
+    #[test]
+    fn extract_vars_empty() {
+        assert!(extract_template_vars("no placeholders here").is_empty());
+    }
+
+    #[test]
+    fn extract_vars_single() {
+        let vars = extract_template_vars("server = \"{{backup_server}}\"");
+        assert_eq!(vars, vec!["backup_server"]);
+    }
+
+    #[test]
+    fn extract_vars_deduplicates() {
+        let vars = extract_template_vars("{{x}} and {{x}} again");
+        assert_eq!(vars, vec!["x"]);
+    }
+
+    #[test]
+    fn extract_vars_ignores_invalid_names() {
+        let vars = extract_template_vars("{{ has spaces }} and {{valid_name}}");
+        assert_eq!(vars, vec!["valid_name"]);
+    }
+
+    #[test]
+    fn template_substitution_in_include() {
+        let tmp = tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("tpl.toml"),
+            r#"
+[config.backup]
+server = "{{backup_server}}"
+"#,
+        )
+        .unwrap();
+
+        let mut cfg = base_config();
+        cfg.include = vec!["tpl".into()];
+        cfg.template
+            .insert("backup_server".into(), "rsync://example.com/".into());
+
+        let result = resolve_includes(cfg, tmp.path(), tmp.path()).unwrap();
+        assert_eq!(result.config.backup.unwrap().server, "rsync://example.com/");
+    }
+
+    #[test]
+    fn unresolved_template_var_is_error() {
+        let tmp = tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("tpl.toml"),
+            r#"
+[config.backup]
+server = "{{missing_var}}"
+"#,
+        )
+        .unwrap();
+
+        let mut cfg = base_config();
+        cfg.include = vec!["tpl".into()];
+        // No template values provided - should fail.
+
+        let err = resolve_includes(cfg, tmp.path(), tmp.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("missing_var"),
+            "error should mention the variable name: {err}"
+        );
     }
 }

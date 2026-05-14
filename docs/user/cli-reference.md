@@ -16,7 +16,7 @@ frostx <COMMAND> [OPTIONS] [PATH]
 | `--json`            |       | Output all results as JSON instead of human-readable text                     |
 | `--verbose`         | `-v`  | Increase output verbosity (repeat for more: `-vv`)                            |
 | `--quiet`           | `-q`  | Suppress all output except errors                                             |
-| `--yes`             | `-y`  | Skip interactive confirmations (except `local.delete`, which always confirms) |
+| `--yes`             | `-y`  | Skip interactive confirmations and the `init` questionnaire (except `local.delete`, which always confirms) |
 | `--config <FILE>`   |       | Use a specific `frostx.toml` instead of the one in PATH                       |
 | `--library <DIR>`   |       | Override the config library directory (default: `~/.config/frostx/library/`)  |
 | `--state-dir <DIR>` |       | Override the state directory (default: `$XDG_DATA_HOME/frostx/`)              |
@@ -75,6 +75,22 @@ frostx init [OPTIONS] [PATH]
 - When `--force` is used on a directory with an existing UUID, a new UUID is generated and a fresh state file is
   created. Use this to resolve a UUID collision after copying a project (
   see [State: UUID Collisions](state.md#uuid-collisions)).
+
+**Interactive questionnaire:**
+
+When stdin is a TTY and neither `--yes` nor `--json` is passed, `frostx init` runs an interactive questionnaire:
+
+1. **Project name** - optional; written as `name = "..."` in `frostx.toml`.
+2. **Project description** - optional; written as `description = "..."`.
+3. **Library templates** - multi-select from all `.toml` files found in the library directory. Any entries already
+   specified with `--include` are pre-selected.
+4. **Template variables** - for each selected template that contains `{{variable}}` placeholders, a value is prompted
+   and stored in the `[template]` table of `frostx.toml`.
+
+Pass `--yes` (or pipe stdin from a non-TTY) to skip the questionnaire and use only the values supplied on the command
+line. Pass `--json` to imply non-interactive mode.
+
+See [includes.md](includes.md#template-variables) for the template variable system.
 
 **Human-readable output:**
 

@@ -26,5 +26,7 @@ pub mod ops;
 pub mod output;
 /// Pipeline: rule evaluation and action execution engine.
 pub mod pipeline;
+/// Interactive prompts for CLI commands (questionnaire for `frostx init`).
+pub mod prompt;
 /// Filesystem scanner: last-modified timestamp detection.
 pub mod scanner;

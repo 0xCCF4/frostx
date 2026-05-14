@@ -139,6 +139,7 @@ mod tests {
             name: None,
             description: None,
             include: vec![],
+            template: HashMap::new(),
             groups: HashMap::new(),
             config: ActionConfig::default(),
             rules: vec![],

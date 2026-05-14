@@ -16,6 +16,12 @@ pub struct InitArgs {
     pub path: std::path::PathBuf,
     /// Library entries or paths to prepend to the `include` list.
     pub includes: Vec<String>,
+    /// Optional human-readable project name.
+    pub name: Option<String>,
+    /// Optional project description.
+    pub description: Option<String>,
+    /// Template variable values for `{{key}}` substitution in included files.
+    pub template: HashMap<String, String>,
     /// Overwrite an existing `frostx.toml` and assign a new UUID.
     pub force: bool,
 }
@@ -49,12 +55,13 @@ pub fn execute(args: &InitArgs, opts: &FrostxOpts) -> Result<InitOutput, FrostxE
     let uuid = Uuid::new_v4();
     let cfg = ProjectConfig {
         id: uuid,
-        name: None,
-        description: None,
+        name: args.name.clone(),
+        description: args.description.clone(),
         include: args.includes.clone(),
+        template: args.template.clone(),
         groups: HashMap::new(),
-        config: default_config(),
-        rules: default_rules(),
+        config: if (args.includes.is_empty()) {default_config()} else {ActionConfig::default()},
+        rules: if (args.includes.is_empty()) {default_rules()} else {Vec::new()},
     };
 
     config::write_initial(path, &cfg)?;

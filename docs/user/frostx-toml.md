@@ -68,6 +68,30 @@ See [includes.md](includes.md) for full merge semantics.
 
 ---
 
+### `[template]`
+
+```toml
+[template]
+backup_server = "rsync://backup.example.com/projects"
+retention_days = "90"
+```
+
+Key-value pairs used to fill in `{{key}}` placeholders inside included files before they are parsed as TOML.
+When an included file contains `{{backup_server}}`, frostx replaces it with the value of `template.backup_server`.
+
+Template variables are resolved at load time. If a placeholder in an included file has no matching key in `[template]`,
+frostx exits with an error.
+
+`frostx init` prompts for template variable values when initializing a project with includes that contain placeholders.
+
+**Type:** table of string → string
+**Required:** no
+**Default:** `{}`
+
+See [includes.md](includes.md#template-variables) for details and examples.
+
+---
+
 ## Duration Format
 
 The `after` field in `[[rule]]` blocks accepts a duration string composed of a number and a unit:
@@ -211,6 +235,9 @@ name = "My Awesome Project"
 description = "Main backend service for the billing system."
 
 include = ["archive-after-1y"]
+
+[template]
+backup_server = "rsync://backup.example.com/projects"
 
 [config.backup]
 server = "rsync://backup.example.com/projects"

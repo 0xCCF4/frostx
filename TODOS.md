@@ -2,9 +2,9 @@
 
 List of features, I would like to add, in no particular order. Not a roadmap, just a brain dump of ideas.
 
+- [ ] `frost init` should do a short questionnaire to set up the initial `frostx.toml`
 - [ ] for include files there should be a templating option, e.g. setting the toplevel `template` data structure, e.g.
   with a question that gets asked during `frost init`, which then includes the template file and fills in the variables.
-- [ ] `frost init` should do a short questionnaire to set up the initial `frostx.toml`
 - [ ] architecture change: there should be an Action Manager to which actions are registered, since they have their
   name, which can be returned, we do not need then to hardcode the existing action name and match arms
 - [ ] Either create a documentation how to setup or custom command for this, once a day, if any project needs to be run,
