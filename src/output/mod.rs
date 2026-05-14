@@ -28,6 +28,8 @@ pub struct InitOutput {
 pub struct CheckOutput {
     pub frostx_version: &'static str,
     pub project: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub path: String,
     pub uuid: String,
     pub inactive_seconds: i64,
@@ -108,6 +110,10 @@ pub struct ProjectEntry {
     pub uuid: String,
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_scan: Option<String>,
 }
 
@@ -148,6 +154,7 @@ pub const FROSTX_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[must_use]
 pub fn build_check_output(
     project_name: &str,
+    project_description: Option<&str>,
     project_path: &Path,
     uuid: Uuid,
     inactive_seconds: i64,
@@ -178,6 +185,7 @@ pub fn build_check_output(
     CheckOutput {
         frostx_version: FROSTX_VERSION,
         project: project_name.to_string(),
+        description: project_description.map(str::to_string),
         path: project_path.display().to_string(),
         uuid: uuid.to_string(),
         inactive_seconds,

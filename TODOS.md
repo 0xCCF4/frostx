@@ -2,10 +2,6 @@
 
 List of features, I would like to add, in no particular order. Not a roadmap, just a brain dump of ideas.
 
-- [x] Fix all `cargo clippy --all-targets -- -D warnings -W clippy::pedantic`
-- [x] rule names to recognize rules in the UI and logs, instead of just "Rule 1", "Rule 2", etc.
-- [ ] projects should get a name, for the same reason, dont show "unknown" etc
-- [ ] projects should get an optional description field to clarify their purpose
 - [ ] for include files there should be a templating option, e.g. setting the toplevel `template` data structure, e.g.
   with a question that gets asked during `frost init`, which then includes the template file and fills in the variables.
 - [ ] `frost init` should do a short questionnaire to set up the initial `frostx.toml`

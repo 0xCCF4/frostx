@@ -50,6 +50,7 @@ pub fn execute(args: &InitArgs, opts: &FrostxOpts) -> Result<InitOutput, FrostxE
     let cfg = ProjectConfig {
         id: uuid,
         name: None,
+        description: None,
         include: args.includes.clone(),
         groups: HashMap::new(),
         config: default_config(),

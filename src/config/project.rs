@@ -13,6 +13,10 @@ pub struct ProjectConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 
+    /// Optional description of this project shown in output and logs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
     /// Include sources - resolved before this struct is returned to callers.
     #[serde(default)]
     pub include: Vec<String>,
@@ -242,6 +246,7 @@ mod tests {
         ProjectConfig {
             id,
             name: None,
+            description: None,
             include: vec![],
             groups: HashMap::new(),
             config: ActionConfig::default(),

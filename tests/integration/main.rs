@@ -4,6 +4,7 @@ mod gc;
 mod init;
 mod notify;
 mod pipeline;
+mod project_description;
 mod project_name;
 mod projects;
 mod rule_names;

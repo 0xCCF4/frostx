@@ -41,9 +41,14 @@ pub fn list(opts: &FrostxOpts) -> Result<ProjectsListOutput, FrostxError> {
     let mut projects = Vec::new();
     for (uuid, _) in entries {
         let state = ProjectState::load(&opts.state_dir, uuid)?;
+        let (name, description) = config::load(&state.project_path, &opts.library_dir)
+            .ok()
+            .map_or((None, None), |cfg| (cfg.name, cfg.description));
         projects.push(ProjectEntry {
             uuid: uuid.to_string(),
             path: state.project_path.display().to_string(),
+            name,
+            description,
             last_scan: state.last_scan.map(|t| t.to_rfc3339()),
         });
     }
@@ -104,6 +109,8 @@ fn add_single(path: &Path, opts: &FrostxOpts) -> Result<ProjectEntry, FrostxErro
     Ok(ProjectEntry {
         uuid: cfg.id.to_string(),
         path: canonical.display().to_string(),
+        name: cfg.name.clone(),
+        description: cfg.description.clone(),
         last_scan,
     })
 }

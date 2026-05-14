@@ -23,6 +23,9 @@ pub fn print_check(out: &CheckOutput) {
         out.uuid.dimmed()
     );
     println!("{} {}", "path   ".bold(), out.path);
+    if let Some(desc) = &out.description {
+        println!("{} {}", "desc   ".bold(), desc);
+    }
     println!(
         "{} {}",
         "inactive".bold(),
@@ -197,12 +200,21 @@ pub fn print_projects_list(out: &ProjectsListOutput) {
             .unwrap_or("never")
             .dimmed()
             .to_string();
+        let name_part = p
+            .name
+            .as_deref()
+            .map(|n| format!("  {}", n.cyan()))
+            .unwrap_or_default();
         println!(
-            "{} {}  (last scan: {})",
+            "{} {}{}  (last scan: {})",
             p.uuid.dimmed(),
             p.path.bold(),
+            name_part,
             scan
         );
+        if let Some(desc) = &p.description {
+            println!("         {}", desc.dimmed());
+        }
     }
 }
 

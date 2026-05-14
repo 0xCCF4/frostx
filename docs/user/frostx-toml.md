@@ -34,6 +34,19 @@ Optional human-readable project name shown in output and logs. When set, it is u
 
 ---
 
+### `description`
+
+```toml
+description = "Main backend service for the billing system."
+```
+
+Optional free-text description of the project shown in output and logs. Use this to clarify the project's purpose, team ownership, or any other context useful when reviewing inactivity reports.
+
+**Type:** string
+**Required:** no
+
+---
+
 ### `include`
 
 ```toml
@@ -195,6 +208,7 @@ The command is run via `sh -c`. Exit code `0` is success; any other code fails t
 ```toml
 id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 name = "My Awesome Project"
+description = "Main backend service for the billing system."
 
 include = ["archive-after-1y"]
 

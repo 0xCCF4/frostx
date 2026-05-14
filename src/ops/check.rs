@@ -35,6 +35,7 @@ pub fn gather(path: &Path, opts: &FrostxOpts) -> Result<CheckOutput, FrostxError
 
     let out = build_check_output(
         project_name,
+        config.description.as_deref(),
         path,
         config.id,
         scan.inactive_seconds(),

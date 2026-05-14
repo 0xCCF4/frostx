@@ -62,6 +62,7 @@ pub fn execute(args: &ScanArgs, opts: &FrostxOpts) -> Result<Vec<CheckOutput>, F
 
         results.push(build_check_output(
             project_name,
+            cfg.description.as_deref(),
             &project_dir,
             cfg.id,
             scan.inactive_seconds(),
