@@ -30,6 +30,7 @@ pub enum DurationUnit {
 
 impl Duration {
     /// Returns true if `elapsed` since `last_activity` is at least this duration.
+    #[must_use]
     pub fn has_elapsed_since(&self, last_activity: DateTime<Utc>) -> bool {
         let now = Utc::now();
         let threshold = self.apply_to(last_activity);
@@ -38,6 +39,7 @@ impl Duration {
 
     /// Returns the remaining seconds until this duration elapses from `last_activity`,
     /// or 0 if it has already elapsed.
+    #[must_use]
     pub fn remaining_seconds_from(&self, last_activity: DateTime<Utc>) -> i64 {
         let threshold = self.apply_to(last_activity);
         let now = Utc::now();
@@ -59,6 +61,11 @@ impl Duration {
     }
 
     /// Parse from a string like `"90d"`, `"6m"`, `"1y"`, `"24h"`, `"2w"`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string is empty, the numeric part is invalid, the
+    /// value is zero, or the unit character is unrecognized.
     pub fn parse(s: &str) -> Result<Self, FrostxError> {
         let s = s.trim();
         if s.is_empty() {
@@ -76,11 +83,11 @@ impl Duration {
             )));
         }
         let unit = match unit_char {
-            "h" | "hour"  | "hours"  => DurationUnit::Hours,
-            "d" | "day"   | "days"   => DurationUnit::Days,
-            "w" | "week"  | "weeks"  => DurationUnit::Weeks,
+            "h" | "hour" | "hours" => DurationUnit::Hours,
+            "d" | "day" | "days" => DurationUnit::Days,
+            "w" | "week" | "weeks" => DurationUnit::Weeks,
             "m" | "month" | "months" => DurationUnit::Months,
-            "y" | "year"  | "years"  => DurationUnit::Years,
+            "y" | "year" | "years" => DurationUnit::Years,
             other => {
                 return Err(FrostxError::Config(format!(
                     "invalid duration unit '{other}' in '{s}': expected h, d, w, m, or y"
@@ -110,7 +117,7 @@ impl fmt::Display for Duration {
             DurationUnit::Hours => "h",
             DurationUnit::Days => "d",
             DurationUnit::Weeks => "w",
-            DurationUnit::Months => "mon",
+            DurationUnit::Months => "m",
             DurationUnit::Years => "y",
         };
         write!(f, "{}{}", self.value, unit)

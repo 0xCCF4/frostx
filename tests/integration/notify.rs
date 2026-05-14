@@ -72,7 +72,7 @@ fn notify_dry_run_does_not_prompt() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(
-        stdout.contains("dry_run") || stdout.contains("~"),
+        stdout.contains("dry_run") || stdout.contains('~'),
         "expected dry_run marker, got: {stdout}"
     );
 }

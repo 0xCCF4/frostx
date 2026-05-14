@@ -15,6 +15,7 @@ pub struct Notify {
 
 impl Notify {
     /// Construct from a notify config entry.
+    #[must_use]
     pub fn new(config: NotifyConfig) -> Self {
         Self { config }
     }

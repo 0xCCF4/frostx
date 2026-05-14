@@ -24,6 +24,11 @@ pub struct RunArgs {
 ///
 /// `on_action` is called after each action completes, enabling real-time
 /// streaming of results. Returns `true` if any action failed.
+///
+/// # Errors
+///
+/// Returns an error if the config or state cannot be loaded, the scan fails,
+/// or an action returns a hard error (distinct from a failed action outcome).
 pub fn execute(
     args: &RunArgs,
     opts: &FrostxOpts,

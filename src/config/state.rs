@@ -30,6 +30,10 @@ pub struct RuleState {
 
 impl ProjectState {
     /// Load state for `uuid` from the state directory, or return a fresh default.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the state file exists but cannot be read or parsed.
     pub fn load(state_dir: &Path, uuid: Uuid) -> Result<Self, FrostxError> {
         let path = state_file_path(state_dir, uuid);
         if !path.exists() {
@@ -41,6 +45,10 @@ impl ProjectState {
     }
 
     /// Persist state to `<state_dir>/<uuid>.toml`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the state directory cannot be created or the file cannot be written.
     pub fn save(&self, state_dir: &Path, uuid: Uuid) -> Result<(), FrostxError> {
         std::fs::create_dir_all(state_dir)?;
         let path = state_file_path(state_dir, uuid);
@@ -51,6 +59,10 @@ impl ProjectState {
     }
 
     /// Remove the state file for `uuid` (used by `gc`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file exists but cannot be removed.
     pub fn delete(state_dir: &Path, uuid: Uuid) -> Result<(), FrostxError> {
         let path = state_file_path(state_dir, uuid);
         if path.exists() {
@@ -60,6 +72,7 @@ impl ProjectState {
     }
 
     /// Return the state for rule `index` (1-indexed), creating it if absent.
+    #[must_use]
     pub fn rule_mut(&mut self, index: usize) -> &mut RuleState {
         if let Some(pos) = self.rules.iter().position(|r| r.index == index) {
             &mut self.rules[pos]
@@ -75,11 +88,13 @@ impl ProjectState {
     }
 
     /// Return the state for rule `index`, or `None` if absent.
+    #[must_use]
     pub fn rule(&self, index: usize) -> Option<&RuleState> {
         self.rules.iter().find(|r| r.index == index)
     }
 
     /// Check if mutation action `name` in rule `index` is already completed.
+    #[must_use]
     pub fn is_completed(&self, rule_index: usize, action_name: &str) -> bool {
         self.rule(rule_index)
             .is_some_and(|r| r.completed.iter().any(|a| a == action_name))
@@ -96,6 +111,10 @@ impl ProjectState {
 }
 
 /// Returns all (uuid, path) pairs found in the state directory.
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be read.
 pub fn list_state_files(state_dir: &Path) -> Result<Vec<(Uuid, PathBuf)>, FrostxError> {
     if !state_dir.exists() {
         return Ok(vec![]);
@@ -128,9 +147,11 @@ mod tests {
     fn save_and_load_roundtrip() {
         let tmp = tempdir().unwrap();
         let uuid = Uuid::new_v4();
-        let mut state = ProjectState::default();
-        state.project_path = PathBuf::from("/some/project");
-        state.last_scan = Some(Utc::now());
+        let mut state = ProjectState {
+            project_path: PathBuf::from("/some/project"),
+            last_scan: Some(Utc::now()),
+            ..Default::default()
+        };
         state.mark_completed(1, "archive.tar_gz");
 
         state.save(tmp.path(), uuid).unwrap();
@@ -160,8 +181,10 @@ mod tests {
     fn list_state_files_finds_entries() {
         let tmp = tempdir().unwrap();
         let uuid = Uuid::new_v4();
-        let mut state = ProjectState::default();
-        state.project_path = PathBuf::from("/test");
+        let state = ProjectState {
+            project_path: PathBuf::from("/test"),
+            ..Default::default()
+        };
         state.save(tmp.path(), uuid).unwrap();
 
         let files = list_state_files(tmp.path()).unwrap();
@@ -173,8 +196,10 @@ mod tests {
     fn delete_removes_file() {
         let tmp = tempdir().unwrap();
         let uuid = Uuid::new_v4();
-        let mut state = ProjectState::default();
-        state.project_path = PathBuf::from("/test");
+        let state = ProjectState {
+            project_path: PathBuf::from("/test"),
+            ..Default::default()
+        };
         state.save(tmp.path(), uuid).unwrap();
 
         ProjectState::delete(tmp.path(), uuid).unwrap();

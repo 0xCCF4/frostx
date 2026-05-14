@@ -14,6 +14,7 @@ pub struct TarGz {
 
 impl TarGz {
     /// Construct from project config, falling back to gzip if no archive config is set.
+    #[must_use]
     pub fn new(config: &ProjectConfig) -> Self {
         let compression = config
             .config
@@ -24,6 +25,7 @@ impl TarGz {
     }
 
     /// Returns the output path for the archive.
+    #[must_use]
     pub fn archive_path(&self, project_path: &Path, uuid: &uuid::Uuid) -> PathBuf {
         let parent = project_path.parent().unwrap_or(Path::new("."));
         let name = project_path

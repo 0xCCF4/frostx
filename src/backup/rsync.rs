@@ -11,6 +11,7 @@ pub struct RsyncBackend {
 
 impl RsyncBackend {
     /// Construct from a server URL (`rsync://...` or `ssh://...`).
+    #[must_use]
     pub fn new(server: &str) -> Self {
         Self {
             server: server.to_string(),

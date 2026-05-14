@@ -11,6 +11,10 @@ use super::FrostxOpts;
 /// An orphaned state file is one whose recorded project path no longer exists
 /// or whose UUID does not match the `frostx.toml` at that path.
 /// When `dry_run` is `true`, files are reported but not deleted.
+///
+/// # Errors
+///
+/// Returns an error if the state directory cannot be read or a state file cannot be deleted.
 pub fn execute(dry_run: bool, opts: &FrostxOpts) -> Result<GcOutput, FrostxError> {
     let entries = list_state_files(&opts.state_dir)?;
     let mut orphaned: Vec<GcEntry> = Vec::new();

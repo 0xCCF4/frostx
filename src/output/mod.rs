@@ -38,6 +38,8 @@ pub struct CheckOutput {
 #[derive(Serialize)]
 pub struct RuleCheckOutput {
     pub index: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub after: String,
     pub after_seconds: i64,
     pub triggered: bool,
@@ -61,6 +63,8 @@ pub struct RunActionOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
     pub rule: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_name: Option<String>,
     pub action: String,
     pub status: String,
     pub message: String,
@@ -141,6 +145,7 @@ pub struct ProjectRmOutput {
 pub const FROSTX_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Build `CheckOutput` from pipeline results.
+#[must_use]
 pub fn build_check_output(
     project_name: &str,
     project_path: &Path,
@@ -153,6 +158,7 @@ pub fn build_check_output(
         .enumerate()
         .map(|(i, ro)| RuleCheckOutput {
             index: i + 1,
+            name: ro.name.clone(),
             after: ro.after.to_string(),
             after_seconds: ro.after_seconds,
             triggered: ro.triggered,
@@ -181,6 +187,7 @@ pub fn build_check_output(
 
 impl ActionStatus {
     /// Stable lowercase string representation used in JSON output.
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Ok => "ok",

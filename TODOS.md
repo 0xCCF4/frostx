@@ -2,8 +2,9 @@
 
 List of features, I would like to add, in no particular order. Not a roadmap, just a brain dump of ideas.
 
-- [ ] rule names to recognize rules in the UI and logs
-- [ ] projects should get a name, for the same reason
+- [x] Fix all `cargo clippy --all-targets -- -D warnings -W clippy::pedantic`
+- [x] rule names to recognize rules in the UI and logs, instead of just "Rule 1", "Rule 2", etc.
+- [ ] projects should get a name, for the same reason, dont show "unknown" etc
 - [ ] projects should get an optional description field to clarify their purpose
 - [ ] for include files there should be a templating option, e.g. setting the toplevel `template` data structure, e.g.
   with a question that gets asked during `frost init`, which then includes the template file and fills in the variables.
@@ -25,7 +26,7 @@ List of features, I would like to add, in no particular order. Not a roadmap, ju
   to force pipeline execution now.
 - [ ] The cleanup action should be agnostic of the files present, e.g. instead of hardcoding `target/` and
   `node_modules/`, it should check e.g. the presence of `Cargo.toml` and `package.json` and only then clean those
-  folders. The user might hardcode some paths in addtion to these options (which should also be enabled/disabled via
+  folders. The user might hardcode some paths in addition to these options (which should also be enabled/disabled via
   config). Probably best here a trait such that easily new cleaners can be added, e.g. `RustCleaner`, `NodeCleaner`,
   `PythonCleaner`, etc.
 - [ ] The `frostx init --force` should not overwrite the existing `frostx.toml`, but only update the `id` field if a
@@ -39,4 +40,5 @@ List of features, I would like to add, in no particular order. Not a roadmap, ju
 - [ ] Tracking the completion of actions is currently done via index, which is not ideal, when the toml file changes.
   Better would be to add additional metadata to the state, e.g. a hash of the rule and action, or maybe just entire
   `frostx.toml`, to detect changes and reset completion if needed.
+- [ ] all easy registration for new urls besides rsync, ssh, via trait abstraction?
 - [ ] Fix all `cargo clippy --all-targets -- -D warnings -W clippy::pedantic`

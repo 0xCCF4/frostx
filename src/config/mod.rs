@@ -18,6 +18,11 @@ use std::path::{Path, PathBuf};
 pub const CONFIG_FILENAME: &str = "frostx.toml";
 
 /// Locate and parse `frostx.toml` in `dir`, then resolve all includes.
+///
+/// # Errors
+///
+/// Returns an error if the config file is missing, cannot be read, fails TOML
+/// parsing, or any included file cannot be resolved.
 pub fn load(dir: &Path, library_dir: &Path) -> Result<ProjectConfig, FrostxError> {
     let path = config_path(dir);
     if !path.exists() {
@@ -30,6 +35,10 @@ pub fn load(dir: &Path, library_dir: &Path) -> Result<ProjectConfig, FrostxError
 }
 
 /// Write a freshly initialized `frostx.toml` to `dir`.
+///
+/// # Errors
+///
+/// Returns an error if the config cannot be serialized or the file cannot be written.
 pub fn write_initial(dir: &Path, cfg: &ProjectConfig) -> Result<(), FrostxError> {
     let content = toml::to_string_pretty(cfg)
         .map_err(|e| FrostxError::Config(format!("serialisation error: {e}")))?;
@@ -38,6 +47,7 @@ pub fn write_initial(dir: &Path, cfg: &ProjectConfig) -> Result<(), FrostxError>
 }
 
 /// Return the expected path to `frostx.toml` inside `dir`.
+#[must_use]
 pub fn config_path(dir: &Path) -> PathBuf {
     dir.join(CONFIG_FILENAME)
 }
@@ -52,6 +62,7 @@ pub struct ValidationResult {
 ///
 /// Returns lists of errors and warnings. Callers should treat a non-empty
 /// `errors` list as fatal and a non-empty `warnings` list as advisory.
+#[must_use]
 pub fn validate(cfg: &ProjectConfig) -> ValidationResult {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
@@ -61,11 +72,15 @@ pub fn validate(cfg: &ProjectConfig) -> ValidationResult {
     }
     for (i, rule) in cfg.rules.iter().enumerate() {
         let idx = i + 1;
+        let rule_label = match rule.name.as_deref() {
+            Some(n) => format!("rule[{idx}: {n}]"),
+            None => format!("rule[{idx}]"),
+        };
         if rule.actions.is_empty() {
-            warnings.push(format!("rule[{idx}]: actions list is empty"));
+            warnings.push(format!("{rule_label}: actions list is empty"));
         }
         for (j, action) in rule.actions.iter().enumerate() {
-            let loc = format!("rule[{idx}].actions[{}]", j + 1);
+            let loc = format!("{rule_label}.actions[{}]", j + 1);
             if let Some(group_name) = action.strip_prefix("group.") {
                 if !cfg.groups.contains_key(group_name) {
                     errors.push(format!("{loc}: unknown group '{group_name}'"));
@@ -163,6 +178,7 @@ mod tests {
     fn validate_unknown_group_is_error() {
         let mut cfg = minimal_cfg();
         cfg.rules.push(Rule {
+            name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["group.missing".into()],
         });
@@ -174,6 +190,7 @@ mod tests {
     fn validate_backup_action_without_config_is_error() {
         let mut cfg = minimal_cfg();
         cfg.rules.push(Rule {
+            name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["backup.check".into()],
         });

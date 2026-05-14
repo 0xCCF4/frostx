@@ -67,16 +67,18 @@ declaration order.
 
 ```toml
 [[rule]]
+name = "safety checks"
 after = "90d"
 actions = ["git.check_clean", "git.check_pushed", "backup.check"]
 ```
 
 ### Fields
 
-| Field     | Type             | Required | Description                               |
-|-----------|------------------|----------|-------------------------------------------|
-| `after`   | duration string  | yes      | Inactivity period that triggers this rule |
-| `actions` | array of strings | yes      | Ordered list of action names to execute   |
+| Field     | Type             | Required | Description                                                    |
+|-----------|------------------|----------|----------------------------------------------------------------|
+| `name`    | string           | no       | Human-readable label shown in output and logs                  |
+| `after`   | duration string  | yes      | Inactivity period that triggers this rule                      |
+| `actions` | array of strings | yes      | Ordered list of action names to execute                        |
 
 Action names are either built-in (`git.check_clean`, `archive.tar_gz`, ...) or group references (`group.<name>`) or hook
 references (`hook.<name>`). See [actions.md](actions.md) for the full list.
@@ -199,10 +201,12 @@ kind = "mutation"
 actions = ["git.check_clean", "git.check_pushed", "backup.check"]
 
 [[rule]]
+name = "safety checks"
 after = "90d"
 actions = ["group.safety_checks"]
 
 [[rule]]
+name = "archive and delete"
 after = "365d"
 actions = [
     "group.safety_checks",

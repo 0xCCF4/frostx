@@ -25,6 +25,11 @@ pub struct ScanArgs {
 ///
 /// Projects that fail to load or scan are silently skipped.
 /// Returns one [`CheckOutput`] per successfully evaluated project.
+///
+/// # Errors
+///
+/// This function currently always returns `Ok`; the signature reserves the right
+/// to propagate fatal I/O errors in future versions.
 pub fn execute(args: &ScanArgs, opts: &FrostxOpts) -> Result<Vec<CheckOutput>, FrostxError> {
     let projects = find_projects(&args.root, args.depth);
     let mut results = Vec::new();

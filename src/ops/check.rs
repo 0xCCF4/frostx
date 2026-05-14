@@ -13,6 +13,10 @@ use super::FrostxOpts;
 ///
 /// Loads config and state, evaluates rules, persists the updated `project_path`,
 /// and returns the rendered output ready for display or further processing.
+///
+/// # Errors
+///
+/// Returns an error if the config or state cannot be loaded, or if the scan fails.
 pub fn gather(path: &Path, opts: &FrostxOpts) -> Result<CheckOutput, FrostxError> {
     let config = super::init::load_config(path, opts)?;
     super::init::check_uuid_collision(&config, path, &opts.state_dir)?;

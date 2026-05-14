@@ -11,6 +11,10 @@ use super::FrostxOpts;
 ///
 /// Returns a [`DoctorOutput`] describing any errors or warnings found.
 /// Does not execute any actions or modify any state.
+///
+/// # Errors
+///
+/// Returns an error if the config file cannot be loaded.
 pub fn execute(path: &Path, opts: &FrostxOpts) -> Result<DoctorOutput, FrostxError> {
     let cfg = super::init::load_config(path, opts)?;
     let result = config::validate(&cfg);

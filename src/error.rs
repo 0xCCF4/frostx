@@ -53,6 +53,7 @@ pub mod exit_code {
 
 impl FrostxError {
     /// Maps each error variant to its documented exit code.
+    #[must_use]
     pub fn exit_code(&self) -> i32 {
         match self {
             Self::NotInitialized(_) => exit_code::NOT_INITIALIZED,

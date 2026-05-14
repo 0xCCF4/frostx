@@ -96,12 +96,13 @@ fn main() {
                 action_filter: action,
                 force,
             };
-            let cb: frostx::pipeline::ActionCallback<'_> =
-                Box::new(move |rule_idx, ao: &frostx::pipeline::ActionOutcome| {
+            let cb: frostx::pipeline::ActionCallback<'_> = Box::new(
+                move |rule_idx, rule_name, ao: &frostx::pipeline::ActionOutcome| {
                     let out = RunActionOutput {
                         frostx_version: FROSTX_VERSION,
                         project: None,
                         rule: rule_idx,
+                        rule_name: rule_name.map(str::to_owned),
                         action: ao.name.clone(),
                         status: ao.status.as_str().to_string(),
                         message: ao.message.clone(),
@@ -110,7 +111,8 @@ fn main() {
                         OutputFormat::Human => human::print_run_action(&out),
                         OutputFormat::Json => json::print_run_action(&out),
                     }
-                });
+                },
+            );
             match ops::run::execute(&run_args, &opts, &cb) {
                 Ok(had_failures) => {
                     if had_failures {
@@ -264,12 +266,15 @@ fn main() {
                     rule_filter: rule,
                     action_filter: action,
                 };
-                let (had_failures, errors) =
-                    ops::projects::run_all(&run_args, &opts, &|project_path, rule_idx, ao| {
+                let (had_failures, errors) = ops::projects::run_all(
+                    &run_args,
+                    &opts,
+                    &|project_path, rule_idx, rule_name, ao| {
                         let out = RunActionOutput {
                             frostx_version: FROSTX_VERSION,
                             project: Some(project_path.display().to_string()),
                             rule: rule_idx,
+                            rule_name: rule_name.map(str::to_owned),
                             action: ao.name.clone(),
                             status: ao.status.as_str().to_string(),
                             message: ao.message.clone(),
@@ -278,7 +283,8 @@ fn main() {
                             OutputFormat::Human => human::print_run_action(&out),
                             OutputFormat::Json => json::print_run_action(&out),
                         }
-                    });
+                    },
+                );
                 let mut worst = if had_failures {
                     exit_code::ERROR
                 } else {

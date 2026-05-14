@@ -21,6 +21,11 @@ pub struct InitArgs {
 }
 
 /// Initialize a new frostx project by creating `frostx.toml` in `args.path`.
+///
+/// # Errors
+///
+/// Returns an error if the directory already contains `frostx.toml` and `--force`
+/// was not set, or if the file cannot be written.
 pub fn execute(args: &InitArgs, opts: &FrostxOpts) -> Result<InitOutput, FrostxError> {
     let path = &args.path;
     std::fs::create_dir_all(path)?;
@@ -76,6 +81,7 @@ fn default_rules() -> Vec<Rule> {
     use crate::config::duration::{Duration, DurationUnit};
     vec![
         Rule {
+            name: Some("check state synchronized with vcs".to_string()),
             after: Duration {
                 value: 3,
                 unit: DurationUnit::Months,
@@ -83,6 +89,7 @@ fn default_rules() -> Vec<Rule> {
             actions: vec!["vcs.check_clean".into(), "vcs.check_pushed".into()],
         },
         Rule {
+            name: Some("notify review".into()),
             after: Duration {
                 value: 6,
                 unit: DurationUnit::Months,
@@ -93,6 +100,10 @@ fn default_rules() -> Vec<Rule> {
 }
 
 /// Load a project config from `path` (or from the config override in `opts`).
+///
+/// # Errors
+///
+/// Returns an error if the config file is missing or cannot be parsed.
 pub fn load_config(path: &Path, opts: &FrostxOpts) -> Result<ProjectConfig, FrostxError> {
     let dir = if let Some(ref override_path) = opts.config_override {
         override_path.parent().unwrap_or(path).to_path_buf()
@@ -106,6 +117,11 @@ pub fn load_config(path: &Path, opts: &FrostxOpts) -> Result<ProjectConfig, Fros
 ///
 /// Returns `Err(FrostxError::UuidCollision)` if the paths differ, which
 /// indicates the project directory was copied from another tracked project.
+///
+/// # Errors
+///
+/// Returns [`crate::error::FrostxError::UuidCollision`] on path mismatch, or an
+/// I/O error if the state file cannot be read.
 pub fn check_uuid_collision(
     config: &ProjectConfig,
     current_path: &Path,

@@ -9,6 +9,10 @@ use std::path::{Path, PathBuf};
 /// (starting with `./` or `../`) are resolved against it.
 ///
 /// Include order: entries are applied left-to-right; local values always win.
+///
+/// # Errors
+///
+/// Returns an error if any included file cannot be read or parsed.
 pub fn resolve_includes(
     base: ProjectConfig,
     project_dir: &Path,
@@ -158,6 +162,7 @@ actions = ["git.check_clean"]
         let mut cfg = base_config();
         cfg.include = vec!["my-template".into()];
         cfg.rules.push(super::super::project::Rule {
+            name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["git.check_pushed".into()],
         });

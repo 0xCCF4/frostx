@@ -94,6 +94,10 @@ pub trait Action: Send + Sync {
     fn kind(&self) -> ActionKind;
 
     /// Execute the action and return an outcome.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the action fails to execute (e.g., I/O error, process failure).
     fn run(&self, ctx: &ActionContext<'_>) -> Result<ActionOutcome, FrostxError>;
 }
 
@@ -103,6 +107,11 @@ pub trait Action: Send + Sync {
 /// adding a new `match` arm here and implementing the `Action` trait.
 ///
 /// Static actions are registered below to the array as well.
+///
+/// # Errors
+///
+/// Returns [`FrostxError::UnknownAction`] if `name` is not registered, or a config
+/// error if the action requires config that is absent.
 pub fn create(name: &str, config: &ProjectConfig) -> Result<Box<dyn Action>, FrostxError> {
     match name {
         "git.check_clean" => Ok(Box::new(git::CheckClean)),

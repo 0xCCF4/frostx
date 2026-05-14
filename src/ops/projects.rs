@@ -32,6 +32,10 @@ pub struct ProjectsRunArgs {
 }
 
 /// List all currently tracked projects.
+///
+/// # Errors
+///
+/// Returns an error if the state directory cannot be read.
 pub fn list(opts: &FrostxOpts) -> Result<ProjectsListOutput, FrostxError> {
     let entries = list_state_files(&opts.state_dir)?;
     let mut projects = Vec::new();
@@ -105,6 +109,11 @@ fn add_single(path: &Path, opts: &FrostxOpts) -> Result<ProjectEntry, FrostxErro
 }
 
 /// Unregister a project by deleting its state file.
+///
+/// # Errors
+///
+/// Returns an error if the project path cannot be resolved, the UUID cannot be
+/// found, or the state file cannot be deleted.
 pub fn rm(path: &Path, opts: &FrostxOpts) -> Result<ProjectRmOutput, FrostxError> {
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 
@@ -165,15 +174,16 @@ pub fn check_all(opts: &FrostxOpts) -> (Vec<CheckOutput>, Vec<(PathBuf, FrostxEr
 /// Execute the inactivity pipeline for every tracked project.
 ///
 /// `on_action` is called after each action with the project path, rule index,
-/// and action outcome, enabling real-time output streaming.
+/// optional rule name, and action outcome, enabling real-time output streaming.
 ///
 /// Returns `(had_failures, errors)` where `had_failures` is `true` if any
 /// action status was `Failed`, and `errors` lists projects that could not be
 /// loaded or run.
+#[allow(clippy::type_complexity)]
 pub fn run_all(
     args: &ProjectsRunArgs,
     opts: &FrostxOpts,
-    on_action: &dyn Fn(&Path, usize, &pipeline::ActionOutcome),
+    on_action: &dyn Fn(&Path, usize, Option<&str>, &pipeline::ActionOutcome),
 ) -> (bool, Vec<(PathBuf, FrostxError)>) {
     let entries = match list_state_files(&opts.state_dir) {
         Ok(e) => e,
@@ -197,7 +207,7 @@ pub fn run_all(
 
         let path_ref = path.clone();
         let cb: pipeline::ActionCallback<'_> =
-            Box::new(move |rule_idx, ao| on_action(&path_ref, rule_idx, ao));
+            Box::new(move |rule_idx, rule_name, ao| on_action(&path_ref, rule_idx, rule_name, ao));
 
         match super::run::execute(&run_args, opts, &cb) {
             Ok(failed) => {

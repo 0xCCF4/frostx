@@ -5,4 +5,5 @@ mod init;
 mod notify;
 mod pipeline;
 mod projects;
+mod rule_names;
 mod scan;

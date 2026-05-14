@@ -11,6 +11,7 @@ pub struct Hook {
 impl Hook {
     /// Construct from a hook config entry. The `_name` parameter is accepted for
     /// symmetry with other constructors but is not stored.
+    #[must_use]
     pub fn new(_name: &str, config: HookConfig) -> Self {
         Self { config }
     }

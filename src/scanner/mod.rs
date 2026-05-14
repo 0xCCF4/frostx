@@ -16,11 +16,13 @@ pub struct ScanResult {
 
 impl ScanResult {
     /// Seconds elapsed since the most recently modified file.
+    #[must_use]
     pub fn inactive_seconds(&self) -> i64 {
         (Utc::now() - self.last_modified).num_seconds().max(0)
     }
 
     /// Human-readable inactivity description, e.g. `"97 days"`.
+    #[must_use]
     #[allow(dead_code)]
     pub fn inactive_display(&self) -> String {
         human::format_seconds_as_str(self.inactive_seconds())
@@ -32,6 +34,10 @@ impl ScanResult {
 ///
 /// The `frostx.toml` itself is excluded so that `frostx run` does not
 /// reset the inactivity clock.
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be walked or file metadata cannot be read.
 pub fn scan(dir: &Path) -> Result<ScanResult, FrostxError> {
     let mut latest: Option<DateTime<Utc>> = None;
     let mut file_count: u64 = 0;
@@ -63,7 +69,7 @@ pub fn scan(dir: &Path) -> Result<ScanResult, FrostxError> {
     }
 
     Ok(ScanResult {
-        last_modified: latest.unwrap_or(DateTime::<Utc>::from(Utc::now())), // if there are no files
+        last_modified: latest.unwrap_or_else(Utc::now), // if there are no files
         file_count,
     })
 }

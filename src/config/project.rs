@@ -104,6 +104,7 @@ pub enum Compression {
 
 impl Compression {
     /// Returns the file extension produced by this algorithm (e.g. `"tar.gz"`).
+    #[must_use]
     pub fn extension(&self) -> &str {
         match self {
             Self::Gz => "tar.gz",
@@ -131,6 +132,7 @@ impl Default for FsConfig {
 
 impl FsConfig {
     /// The built-in artifact directory list used when `[config.fs]` is absent.
+    #[must_use]
     pub fn default_clean_artifacts() -> Vec<String> {
         vec![
             "target/".into(),
@@ -167,13 +169,20 @@ pub enum HookKind {
 /// One `[[rule]]` block.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rule {
+    /// Optional human-readable label shown in output and logs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub after: Duration,
     pub actions: Vec<String>,
 }
 
 impl ProjectConfig {
     /// Expand all `group.<name>` references in every rule's action list.
-    /// Returns an error if a referenced group is not defined.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a referenced group is not defined or if a circular
+    /// group reference is detected.
     pub fn expand_groups(&self) -> Result<Vec<Vec<String>>, crate::error::FrostxError> {
         self.rules
             .iter()
@@ -182,6 +191,10 @@ impl ProjectConfig {
     }
 
     /// Return the `[config.backup]` section or an error if missing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::error::FrostxError::BackupConfigMissing`] if `[config.backup]` is absent.
     pub fn require_backup(&self) -> Result<&BackupConfig, crate::error::FrostxError> {
         self.config
             .backup
@@ -235,6 +248,7 @@ mod tests {
     fn expand_no_groups() {
         let mut cfg = minimal_config(Uuid::new_v4());
         cfg.rules.push(Rule {
+            name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["git.check_clean".into(), "git.check_pushed".into()],
         });
@@ -252,6 +266,7 @@ mod tests {
             },
         );
         cfg.rules.push(Rule {
+            name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["group.checks".into(), "backup.check".into()],
         });
@@ -278,6 +293,7 @@ mod tests {
             },
         );
         cfg.rules.push(Rule {
+            name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["group.all".into()],
         });
@@ -301,6 +317,7 @@ mod tests {
             },
         );
         cfg.rules.push(Rule {
+            name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["group.a".into()],
         });
@@ -311,6 +328,7 @@ mod tests {
     fn unknown_group_error() {
         let mut cfg = minimal_config(Uuid::new_v4());
         cfg.rules.push(Rule {
+            name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["group.missing".into()],
         });

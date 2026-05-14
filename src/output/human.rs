@@ -44,9 +44,14 @@ pub fn print_check(out: &CheckOutput) {
         } else {
             String::new()
         };
+        let name_part = rule
+            .name
+            .as_deref()
+            .map(|n| format!(" ({n})"))
+            .unwrap_or_default();
         println!(
-            "rule #{}  after={}  {}{}",
-            rule.index, rule.after, trigger_marker, remaining
+            "rule #{}{}  after={}  {}{}",
+            rule.index, name_part, rule.after, trigger_marker, remaining
         );
         for action in &rule.actions {
             let (marker, name_str) = match action.status.as_str() {
@@ -69,7 +74,10 @@ pub fn print_check(out: &CheckOutput) {
 
 /// Print one action result line from `frostx run`.
 pub fn print_run_action(out: &RunActionOutput) {
-    let prefix = format!("[rule {}]", out.rule);
+    let prefix = match out.rule_name.as_deref() {
+        Some(name) => format!("[rule {}: {name}]", out.rule),
+        None => format!("[rule {}]", out.rule),
+    };
     match out.status.as_str() {
         "ok" | "completed" => println!(
             "{} {} {} — {}",
@@ -234,6 +242,7 @@ pub fn print_error(message: &str) {
 }
 
 /// Formats seconds as string like "5 minutes", "2 hours", or "3 days", choosing the largest appropriate unit.
+#[must_use]
 pub fn format_seconds_as_str(seconds: i64) -> String {
     if seconds < 3600 {
         format!("{} minutes", seconds / 60)

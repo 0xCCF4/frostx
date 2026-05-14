@@ -35,6 +35,7 @@ pub struct ActionOutcome {
 pub struct RuleOutcome {
     #[allow(dead_code)]
     pub index: usize,
+    pub name: Option<String>,
     pub after: Duration,
     pub after_seconds: i64,
     pub triggered: bool,
@@ -52,10 +53,15 @@ pub struct RunOptions {
 }
 
 /// Callback invoked after each action completes (used to stream output).
-pub type ActionCallback<'a> = Box<dyn Fn(usize, &ActionOutcome) + 'a>;
+pub type ActionCallback<'a> = Box<dyn Fn(usize, Option<&str>, &ActionOutcome) + 'a>;
 
 /// Evaluate which rules are triggered given a last-activity timestamp.
+///
 /// Returns `RuleOutcome` without executing any actions.
+///
+/// # Errors
+///
+/// Returns an error if config group expansion fails.
 pub fn evaluate(
     config: &ProjectConfig,
     state: &ProjectState,
@@ -97,6 +103,7 @@ pub fn evaluate(
 
         outcomes.push(RuleOutcome {
             index,
+            name: rule.name.clone(),
             after: rule.after.clone(),
             after_seconds,
             triggered,
@@ -108,7 +115,109 @@ pub fn evaluate(
     Ok(outcomes)
 }
 
+fn skipped_pipeline_outcomes(
+    actions: &[String],
+    index: usize,
+    rule_name: Option<&str>,
+    on_action: &ActionCallback<'_>,
+) -> Vec<ActionOutcome> {
+    actions
+        .iter()
+        .map(|action_name| {
+            let outcome = ActionOutcome {
+                name: action_name.clone(),
+                status: ActionStatus::Skipped,
+                message: "skipped - preceding rule failed".into(),
+            };
+            on_action(index, rule_name, &outcome);
+            outcome
+        })
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_rule_actions(
+    actions: &[String],
+    index: usize,
+    rule_name: Option<&str>,
+    config: &ProjectConfig,
+    state: &mut ProjectState,
+    project_path: &Path,
+    dry_run: bool,
+    force: bool,
+    yes: bool,
+    action_filter: Option<&str>,
+    on_action: &ActionCallback<'_>,
+) -> Result<(Vec<ActionOutcome>, bool), FrostxError> {
+    let mut outcomes = Vec::new();
+    let mut chain_failed = false;
+    for action_name in actions {
+        if action_filter.is_some_and(|f| f != action_name) {
+            continue;
+        }
+        if chain_failed {
+            let outcome = ActionOutcome {
+                name: action_name.clone(),
+                status: ActionStatus::Skipped,
+                message: "skipped - preceding action failed".into(),
+            };
+            on_action(index, rule_name, &outcome);
+            outcomes.push(outcome);
+            continue;
+        }
+        let action = crate::actions::create(action_name, config)?;
+        if action.kind() == crate::actions::ActionKind::Mutation
+            && !force
+            && state.is_completed(index, action_name)
+        {
+            let outcome = ActionOutcome {
+                name: action_name.clone(),
+                status: ActionStatus::Completed,
+                message: "already completed".into(),
+            };
+            on_action(index, rule_name, &outcome);
+            outcomes.push(outcome);
+            continue;
+        }
+        let ctx = crate::actions::ActionContext {
+            project_path,
+            config,
+            dry_run,
+            yes,
+        };
+        let outcome = match action.run(&ctx) {
+            Ok(ao) => ActionOutcome {
+                name: action_name.clone(),
+                status: ao.status.clone(),
+                message: ao.message.clone(),
+            },
+            Err(e) => ActionOutcome {
+                name: action_name.clone(),
+                status: ActionStatus::Failed,
+                message: e.to_string(),
+            },
+        };
+        let failed = outcome.status == ActionStatus::Failed;
+        if !dry_run
+            && (outcome.status == ActionStatus::Ok || outcome.status == ActionStatus::Completed)
+            && action.kind() == crate::actions::ActionKind::Mutation
+        {
+            state.mark_completed(index, action_name);
+        }
+        on_action(index, rule_name, &outcome);
+        outcomes.push(outcome);
+        if failed {
+            chain_failed = true;
+        }
+    }
+    Ok((outcomes, chain_failed))
+}
+
 /// Execute the pipeline for a project.
+///
+/// # Errors
+///
+/// Returns an error if config group expansion fails or action creation fails.
 pub fn run(
     config: &ProjectConfig,
     state: &mut ProjectState,
@@ -119,27 +228,21 @@ pub fn run(
 ) -> Result<Vec<RuleOutcome>, FrostxError> {
     let expanded = config.expand_groups()?;
     let mut outcomes = Vec::new();
-    let ctx_yes = opts.yes;
-    let ctx_dry_run = opts.dry_run;
-    let ctx_force = opts.force; // used for skipping completed-action check
     let mut pipeline_failed = false;
 
     for (i, (rule, actions)) in config.rules.iter().zip(expanded.iter()).enumerate() {
         let index = i + 1;
-
-        // Rule filter: skip rules not matching the filter.
         if let Some(filter) = opts.rule_filter {
             if filter != index {
                 continue;
             }
         }
-
         let triggered = opts.action_filter.is_some() || rule.after.has_elapsed_since(last_modified);
         let remaining = rule.after.remaining_seconds_from(last_modified);
-
         if !triggered {
             outcomes.push(RuleOutcome {
                 index,
+                name: rule.name.clone(),
                 after: rule.after.clone(),
                 after_seconds: 0,
                 triggered: false,
@@ -148,23 +251,12 @@ pub fn run(
             });
             continue;
         }
-
-        // A failed rule blocks all subsequent rules for this run.
         if pipeline_failed {
-            let action_outcomes = actions
-                .iter()
-                .map(|action_name| {
-                    let outcome = ActionOutcome {
-                        name: action_name.clone(),
-                        status: ActionStatus::Skipped,
-                        message: "skipped - preceding rule failed".into(),
-                    };
-                    on_action(index, &outcome);
-                    outcome
-                })
-                .collect();
+            let action_outcomes =
+                skipped_pipeline_outcomes(actions, index, rule.name.as_deref(), on_action);
             outcomes.push(RuleOutcome {
                 index,
+                name: rule.name.clone(),
                 after: rule.after.clone(),
                 after_seconds: 0,
                 triggered: true,
@@ -173,91 +265,25 @@ pub fn run(
             });
             continue;
         }
-
-        let mut action_outcomes = Vec::new();
-        let mut chain_failed = false;
-
-        for action_name in actions {
-            // Single-action filter.
-            if let Some(ref filter) = opts.action_filter {
-                if filter != action_name {
-                    continue;
-                }
-            }
-
-            if chain_failed {
-                let outcome = ActionOutcome {
-                    name: action_name.clone(),
-                    status: ActionStatus::Skipped,
-                    message: "skipped - preceding action failed".into(),
-                };
-                on_action(index, &outcome);
-                action_outcomes.push(outcome);
-                continue;
-            }
-
-            // Check if a mutation was already completed.
-            let action = crate::actions::create(action_name, config)?;
-            if action.kind() == crate::actions::ActionKind::Mutation
-                && !ctx_force
-                && state.is_completed(index, action_name)
-            {
-                let outcome = ActionOutcome {
-                    name: action_name.clone(),
-                    status: ActionStatus::Completed,
-                    message: "already completed".into(),
-                };
-                on_action(index, &outcome);
-                action_outcomes.push(outcome);
-                continue;
-            }
-
-            let ctx = crate::actions::ActionContext {
-                project_path,
-                config,
-                dry_run: ctx_dry_run,
-                yes: ctx_yes,
-            };
-
-            let action_result = action.run(&ctx);
-
-            let outcome = match action_result {
-                Ok(ao) => ActionOutcome {
-                    name: action_name.clone(),
-                    status: ao.status.clone(),
-                    message: ao.message.clone(),
-                },
-                Err(e) => ActionOutcome {
-                    name: action_name.clone(),
-                    status: ActionStatus::Failed,
-                    message: e.to_string(),
-                },
-            };
-
-            let failed = outcome.status == ActionStatus::Failed;
-
-            // Record completed mutations.
-            if !ctx_dry_run
-                && (outcome.status == ActionStatus::Ok || outcome.status == ActionStatus::Completed)
-                && action.kind() == crate::actions::ActionKind::Mutation
-            {
-                state.mark_completed(index, action_name);
-            }
-
-            on_action(index, &outcome);
-            action_outcomes.push(outcome);
-
-            if failed {
-                chain_failed = true;
-            }
-        }
-
+        let (action_outcomes, chain_failed) = run_rule_actions(
+            actions,
+            index,
+            rule.name.as_deref(),
+            config,
+            state,
+            project_path,
+            opts.dry_run,
+            opts.force,
+            opts.yes,
+            opts.action_filter.as_deref(),
+            on_action,
+        )?;
         if chain_failed {
             pipeline_failed = true;
         }
-
         outcomes.push(RuleOutcome {
             index,
+            name: rule.name.clone(),
             after: rule.after.clone(),
             after_seconds: 0,
             triggered: true,
@@ -290,6 +316,7 @@ mod tests {
     #[test]
     fn untriggered_rule_is_not_triggered() {
         let cfg = make_config(vec![Rule {
+            name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["git.check_clean".into()],
         }]);
@@ -302,6 +329,7 @@ mod tests {
     #[test]
     fn triggered_rule_lists_actions() {
         let cfg = make_config(vec![Rule {
+            name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["git.check_clean".into()],
         }]);
@@ -342,10 +370,12 @@ mod tests {
             },
             rules: vec![
                 Rule {
+                    name: None,
                     after: Duration::parse("1h").unwrap(),
                     actions: vec!["hook.fail_check".into()],
                 },
                 Rule {
+                    name: None,
                     after: Duration::parse("1h").unwrap(),
                     actions: vec!["hook.should_not_run".into()],
                 },
@@ -360,7 +390,7 @@ mod tests {
             rule_filter: None,
             action_filter: None,
         };
-        let noop: ActionCallback<'_> = Box::new(|_, _| {});
+        let noop: ActionCallback<'_> = Box::new(|_, _, _| {});
         let outcomes = run(&cfg, &mut state, &tmp, old, &opts, &noop).unwrap();
 
         assert!(outcomes[0].triggered);
@@ -373,6 +403,7 @@ mod tests {
     fn completed_action_shows_as_completed() {
         let id = Uuid::new_v4();
         let cfg = make_config(vec![Rule {
+            name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["archive.tar_gz".into()],
         }]);

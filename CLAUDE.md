@@ -21,6 +21,7 @@ cargo test --test <integration_file> # single integration test file
 cargo fmt --check                    # check formatting (CI)
 cargo fmt                            # apply formatting
 cargo clippy -- -W clippy::pedantic  # lints (must pass before completing any feature)
+cargo clippy --all-targets -- -D warnings -W clippy::pedantic # lints (must pass before completing any feature)
 ```
 
 ### Nix
@@ -34,7 +35,7 @@ nix develop                # enter dev shell
 ### Quality gates (run after every change)
 
 ```
-cargo fmt --check && cargo clippy -- -W clippy::pedantic && cargo test && nix build && nix flake check
+cargo fmt --check && cargo clippy --all-targets -- -D warnings -W clippy::pedantic && cargo clippy -- -W clippy::pedantic && cargo test && nix build && nix flake check
 ```
 
 ## Architecture

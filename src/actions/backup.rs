@@ -27,7 +27,11 @@ pub struct Check {
 }
 
 impl Check {
-    /// Construct from project config. Errors if `[config.backup]` is absent.
+    /// Construct from project config.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `[config.backup]` is absent from the project config.
     pub fn new(config: &crate::config::project::ProjectConfig) -> Result<Self, FrostxError> {
         let server = config.require_backup()?.server.clone();
         Ok(Self { server })
@@ -58,7 +62,11 @@ pub struct Upload {
 }
 
 impl Upload {
-    /// Construct from project config. Errors if `[config.backup]` is absent.
+    /// Construct from project config.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `[config.backup]` is absent from the project config.
     pub fn new(config: &crate::config::project::ProjectConfig) -> Result<Self, FrostxError> {
         let server = config.require_backup()?.server.clone();
         Ok(Self { server })
@@ -99,7 +107,11 @@ pub struct Verify {
 }
 
 impl Verify {
-    /// Construct from project config. Errors if `[config.backup]` is absent.
+    /// Construct from project config.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `[config.backup]` is absent from the project config.
     pub fn new(config: &crate::config::project::ProjectConfig) -> Result<Self, FrostxError> {
         let server = config.require_backup()?.server.clone();
         Ok(Self { server })
