@@ -39,4 +39,6 @@ pub struct FrostxOpts {
     pub library_dir: PathBuf,
     /// State directory (`$XDG_DATA_HOME/frostx/`).
     pub state_dir: PathBuf,
+    /// Synthetic inactivity duration that overrides the filesystem scan result.
+    pub pretend_inactive: Option<crate::config::duration::Duration>,
 }

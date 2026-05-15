@@ -83,7 +83,7 @@ actions = [
     "git.clean", # mutation: remove untracked files (git clean -fd)
     "fs.clean_artifacts", # mutation: remove known build dirs before archiving
     "git.tag", # mutation: tag HEAD as last active state
-    "archive.tar_gz", # mutation: create archive
+    "archive.compress", # mutation: create archive
     "backup.upload", # mutation: upload to backup server
     "backup.verify", # check: confirm upload integrity
     "local.delete", # mutation: remove local copy (always confirms interactively)

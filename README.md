@@ -56,7 +56,7 @@ actions = [
     "notify.pre_archive", # pause and ask for confirmation
     "fs.clean_artifacts", # remove build dirs (target/, node_modules/, ...)
     "git.tag", # tag HEAD as last active state
-    "archive.tar_gz", # create compressed archive
+    "archive.compress", # create compressed archive
     "backup.upload", # upload to backup server
     "backup.verify", # confirm upload integrity
     "local.delete", # remove local copy (always confirms interactively)
@@ -76,7 +76,7 @@ Full schema reference: [docs/user/frostx-toml.md](docs/user/frostx-toml.md)
 | `git.clean`          | mutation     | Remove untracked files (`git clean -fd`)          |
 | `fs.clean_artifacts` | mutation     | Remove build artifact directories                 |
 | `git.tag`            | mutation     | Tag HEAD as the last active state                 |
-| `archive.tar_gz`     | mutation     | Create a compressed archive of the project        |
+| `archive.compress`     | mutation     | Create a compressed archive of the project        |
 | `backup.upload`      | mutation     | Upload the archive to the backup server           |
 | `local.delete`       | mutation     | Delete the local project directory                |
 | `hook.<name>`        | configurable | Run a user-defined shell command                  |

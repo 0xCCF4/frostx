@@ -25,7 +25,12 @@ pub fn gather(path: &Path, opts: &FrostxOpts) -> Result<CheckOutput, FrostxError
     state.project_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 
     let scan = scanner::scan(path)?;
-    let outcomes = pipeline::evaluate(&config, &state, scan.last_modified)?;
+    let last_modified = opts
+        .pretend_inactive
+        .as_ref()
+        .map_or(scan.last_modified, |d| d.subtract_from(chrono::Utc::now()));
+    let inactive_seconds = (chrono::Utc::now() - last_modified).num_seconds().max(0);
+    let outcomes = pipeline::evaluate(&config, &state, last_modified)?;
 
     let project_name = config
         .name
@@ -38,7 +43,7 @@ pub fn gather(path: &Path, opts: &FrostxOpts) -> Result<CheckOutput, FrostxError
         config.description.as_deref(),
         path,
         config.id,
-        scan.inactive_seconds(),
+        inactive_seconds,
         &outcomes,
     );
 

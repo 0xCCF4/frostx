@@ -44,6 +44,23 @@ fn main() {
         OutputFormat::Human
     };
 
+    let pretend_inactive = match cli
+        .pretend_inactive
+        .as_deref()
+        .map(frostx::config::duration::Duration::parse)
+    {
+        Some(Ok(d)) => Some(d),
+        Some(Err(e)) => {
+            emit_error_msg(
+                &format!("--pretend-inactive: {e}"),
+                frostx::error::exit_code::ERROR,
+                format,
+            );
+            process::exit(frostx::error::exit_code::ERROR);
+        }
+        None => None,
+    };
+
     let opts = FrostxOpts {
         dry_run: cli.dry_run,
         verbose: cli.verbose > 0,
@@ -52,6 +69,7 @@ fn main() {
         config_override: cli.config,
         library_dir,
         state_dir,
+        pretend_inactive,
     };
 
     let code = match cli.command {

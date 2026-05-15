@@ -24,7 +24,7 @@ pub mod vcs;
 
 use crate::config::project::ProjectConfig;
 use crate::error::FrostxError;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Factory function type: creates a [`Box<dyn Action>`] from project config.
 pub type ActionFactory = fn(&ProjectConfig) -> Result<Box<dyn Action>, FrostxError>;
@@ -54,6 +54,11 @@ pub enum ActionKind {
 pub struct ActionOutcome {
     pub status: crate::pipeline::ActionStatus,
     pub message: String,
+    /// If the action relocated the project (e.g. `archive.compress` replacing the
+    /// directory with an archive file), this holds the new path. The pipeline
+    /// engine updates `ProjectState::project_path` and passes the new path to
+    /// all subsequent actions in the same run.
+    pub new_project_path: Option<PathBuf>,
 }
 
 impl ActionOutcome {
@@ -62,6 +67,7 @@ impl ActionOutcome {
         Self {
             status: crate::pipeline::ActionStatus::Ok,
             message: msg.into(),
+            new_project_path: None,
         }
     }
 
@@ -70,6 +76,7 @@ impl ActionOutcome {
         Self {
             status: crate::pipeline::ActionStatus::Failed,
             message: msg.into(),
+            new_project_path: None,
         }
     }
 
@@ -78,6 +85,7 @@ impl ActionOutcome {
         Self {
             status: crate::pipeline::ActionStatus::Skipped,
             message: msg.into(),
+            new_project_path: None,
         }
     }
 
@@ -86,6 +94,7 @@ impl ActionOutcome {
         Self {
             status: crate::pipeline::ActionStatus::DryRun,
             message: msg.into(),
+            new_project_path: None,
         }
     }
 }

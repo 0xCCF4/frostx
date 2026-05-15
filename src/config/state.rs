@@ -152,13 +152,13 @@ mod tests {
             last_scan: Some(Utc::now()),
             ..Default::default()
         };
-        state.mark_completed(1, "archive.tar_gz");
+        state.mark_completed(1, "archive.compress");
 
         state.save(tmp.path(), uuid).unwrap();
         let loaded = ProjectState::load(tmp.path(), uuid).unwrap();
 
         assert_eq!(loaded.project_path, PathBuf::from("/some/project"));
-        assert!(loaded.is_completed(1, "archive.tar_gz"));
+        assert!(loaded.is_completed(1, "archive.compress"));
         assert!(!loaded.is_completed(1, "backup.upload"));
     }
 
@@ -172,8 +172,8 @@ mod tests {
     #[test]
     fn mark_completed_idempotent() {
         let mut state = ProjectState::default();
-        state.mark_completed(1, "archive.tar_gz");
-        state.mark_completed(1, "archive.tar_gz");
+        state.mark_completed(1, "archive.compress");
+        state.mark_completed(1, "archive.compress");
         assert_eq!(state.rule(1).unwrap().completed.len(), 1);
     }
 

@@ -42,6 +42,10 @@ pub fn execute(
     state.project_path = path.canonicalize().unwrap_or_else(|_| path.clone());
 
     let scan = scanner::scan(path)?;
+    let last_modified = opts
+        .pretend_inactive
+        .as_ref()
+        .map_or(scan.last_modified, |d| d.subtract_from(chrono::Utc::now()));
 
     let run_opts = RunOptions {
         dry_run: opts.dry_run,
@@ -55,7 +59,7 @@ pub fn execute(
         &config,
         &mut state,
         path,
-        scan.last_modified,
+        last_modified,
         &run_opts,
         on_action,
     )?;

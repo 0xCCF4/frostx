@@ -130,7 +130,7 @@ actions = ["git.check_clean", "git.check_pushed", "backup.check"]
 | `after`   | duration string  | yes      | Inactivity period that triggers this rule                      |
 | `actions` | array of strings | yes      | Ordered list of action names to execute                        |
 
-Action names are either built-in (`git.check_clean`, `archive.tar_gz`, ...) or group references (`group.<name>`) or hook
+Action names are either built-in (`git.check_clean`, `archive.compress`, ...) or group references (`group.<name>`) or hook
 references (`hook.<name>`). See [actions.md](actions.md) for the full list.
 
 ---
@@ -148,7 +148,7 @@ actions = [
     "git.clean",
     "fs.clean_artifacts",
     "git.tag",
-    "archive.tar_gz",
+    "archive.compress",
     "backup.upload",
     "backup.verify",
     "local.delete",
@@ -180,7 +180,7 @@ server = "rsync://backup.example.com/projects"
 
 ## `[config.archive]`
 
-Controls how `archive.tar_gz` creates the archive.
+Controls how `archive.compress` creates the archive.
 
 ```toml
 [config.archive]
@@ -268,7 +268,7 @@ actions = [
     "hook.pre_archive",
     "git.clean",
     "git.tag",
-    "archive.tar_gz",
+    "archive.compress",
     "backup.upload",
     "backup.verify",
     "local.delete",

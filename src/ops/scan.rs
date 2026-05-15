@@ -46,7 +46,13 @@ pub fn execute(args: &ScanArgs, opts: &FrostxOpts) -> Result<Vec<CheckOutput>, F
             continue;
         };
 
-        let Ok(outcomes) = pipeline::evaluate(&cfg, &state, scan.last_modified) else {
+        let last_modified = opts
+            .pretend_inactive
+            .as_ref()
+            .map_or(scan.last_modified, |d| d.subtract_from(chrono::Utc::now()));
+        let inactive_seconds = (chrono::Utc::now() - last_modified).num_seconds().max(0);
+
+        let Ok(outcomes) = pipeline::evaluate(&cfg, &state, last_modified) else {
             continue;
         };
 
@@ -65,7 +71,7 @@ pub fn execute(args: &ScanArgs, opts: &FrostxOpts) -> Result<Vec<CheckOutput>, F
             cfg.description.as_deref(),
             &project_dir,
             cfg.id,
-            scan.inactive_seconds(),
+            inactive_seconds,
             &outcomes,
         ));
     }

@@ -11,7 +11,7 @@ pub const REGISTRY: &[(&str, ActionFactory)] = &[
 use std::path::PathBuf;
 
 fn archive_path_for(ctx: &ActionContext<'_>) -> Option<PathBuf> {
-    // Look for a previously created archive from archive.tar_gz.
+    // Look for a previously created archive from archive.compress.
     let parent = ctx.project_path.parent()?;
     let name = ctx.project_path.file_name()?.to_str()?;
     let uuid = ctx.config.id;
@@ -91,7 +91,7 @@ impl Action for Upload {
     fn run(&self, ctx: &ActionContext<'_>) -> Result<ActionOutcome, FrostxError> {
         let archive = archive_path_for(ctx).ok_or_else(|| FrostxError::ActionFailed {
             action: "backup.upload".into(),
-            message: "no local archive found - run archive.tar_gz first".into(),
+            message: "no local archive found - run archive.compress first".into(),
         })?;
 
         if ctx.dry_run {

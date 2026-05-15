@@ -31,7 +31,7 @@ after = "180d"
 actions = [
     "git.check_clean",
     "hook.pre_archive",
-    "archive.tar_gz",
+    "archive.compress",
     "backup.upload",
     "backup.verify",
     "local.delete",
@@ -168,9 +168,13 @@ No configuration required.
 
 ---
 
-### `archive.tar_gz`
+### `archive.compress`
 
-Creates a compressed archive of the project directory alongside the project folder, with a progress indicator.
+Creates a compressed archive of the project directory and **replaces** the project directory with it. The original
+directory is removed after the archive is written successfully.
+
+The pipeline state is updated so that subsequent actions (e.g. `backup.upload`) receive the archive file path as
+their project path.
 
 Output: `<parent-dir>/<project-dir>-<uuid>-<date>.tar.gz`
 
@@ -183,8 +187,7 @@ compression = "gz"   # gz (default) | zstd | xz
 
 ### `backup.upload`
 
-Uploads the archive produced by `archive.tar_gz` to the configured backup server, with a progress indicator. Must follow
-`archive.tar_gz` in the action chain.
+Uploads the project to the configured backup server, with a progress indicator.
 
 ```toml
 [config.backup]
@@ -218,7 +221,7 @@ Referenced in a rule as `hook.<name>`:
 ```toml
 [[rule]]
 after = "90d"
-actions = ["hook.verify_backup", "hook.pre_archive", "archive.tar_gz"]
+actions = ["hook.verify_backup", "hook.pre_archive", "archive.compress"]
 ```
 
 ---
@@ -250,7 +253,7 @@ after = "180d"
 actions = [
     "git.check_clean",
     "notify.review_checklist", # pause and confirm before archiving
-    "archive.tar_gz",
+    "archive.compress",
     "backup.upload",
     "local.delete",
 ]
@@ -277,10 +280,9 @@ vcs.check_clean       <- ensure no uncommitted changes
 vcs.check_pushed      <- auto-fetches before checking
 fs.clean_artifacts    <- remove known build dirs
 vcs.mark              <- tag / bookmark last active state
-archive.tar_gz        <- create archive
-backup.upload         <- store offsite
+archive.compress        <- create archive *and* remove project dir
+backup.upload         <- store offsite (receives archive file path)
 backup.verify         <- confirm transfer
-local.delete          <- remove local copy
 ```
 
 If you need git-specific behaviour (e.g. `git.clean`), use the `git.*` actions directly:
@@ -291,8 +293,7 @@ git.check_pushed
 git.clean             <- remove untracked files (git-only)
 fs.clean_artifacts
 git.tag
-archive.tar_gz
+archive.compress        <- create archive *and* remove project dir
 backup.upload
 backup.verify
-local.delete
 ```

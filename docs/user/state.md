@@ -39,7 +39,7 @@ last_scan = "2025-04-01T08:00:00Z"
 [[rule]]
 index = 1          # matches the 1-indexed rule in frostx.toml
 completed = [# actions that have been successfully executed and need not repeat
-    "archive.tar_gz",
+    "archive.compress",
     "backup.upload",
 ]
 last_run = "2025-04-01T08:00:00Z"
@@ -57,7 +57,7 @@ Not all actions are recorded as completed:
 | Action type                                                       | Recorded? | Reason                                                           |
 |-------------------------------------------------------------------|-----------|------------------------------------------------------------------|
 | **Checks** (`git.check_clean`, `backup.check`, ...)               | No        | Re-evaluated on every run; their result may change               |
-| **Mutations** (`archive.tar_gz`, `backup.upload`, `local.delete`) | Yes       | One-time operations; re-running would be destructive or wasteful |
+| **Mutations** (`archive.compress`, `backup.upload`, `local.delete`) | Yes       | One-time operations; re-running would be destructive or wasteful |
 
 Use `frostx run --force` to re-execute completed mutation actions.
 

@@ -44,6 +44,13 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "DIR")]
     pub state_dir: Option<PathBuf>,
 
+    /// Treat the project as if it has been inactive for exactly this long (e.g. `90d`, `6m`).
+    ///
+    /// Overrides the filesystem scan result. Useful for testing and for forcing
+    /// pipeline execution without modifying file timestamps.
+    #[arg(long, global = true, value_name = "DURATION")]
+    pub pretend_inactive: Option<String>,
+
     /// Subcommand to execute.
     #[command(subcommand)]
     pub command: Cmd,

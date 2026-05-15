@@ -84,7 +84,7 @@ pub struct BackupConfig {
     pub server: String,
 }
 
-/// `[config.archive]` section - controls how `archive.tar_gz` compresses the project.
+/// `[config.archive]` section - controls how `archive.compress` compresses the project.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArchiveConfig {
     #[serde(default = "ArchiveConfig::default_compression")]
@@ -105,7 +105,7 @@ impl ArchiveConfig {
     }
 }
 
-/// Compression algorithm for `archive.tar_gz`.
+/// Compression algorithm for `archive.compress`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Compression {

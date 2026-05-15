@@ -1,9 +1,11 @@
+mod archive;
 mod check;
 mod doctor;
 mod gc;
 mod init;
 mod notify;
 mod pipeline;
+mod pretend_inactive;
 mod project_description;
 mod project_name;
 mod projects;

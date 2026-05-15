@@ -60,6 +60,25 @@ impl Duration {
         }
     }
 
+    /// Return `base` shifted backward by this duration.
+    ///
+    /// Used by `--pretend-inactive` to compute a synthetic `last_modified`
+    /// timestamp from a declared inactivity period.
+    #[must_use]
+    pub fn subtract_from(&self, base: DateTime<Utc>) -> DateTime<Utc> {
+        match self.unit {
+            DurationUnit::Hours => base - chrono::Duration::hours(i64::from(self.value)),
+            DurationUnit::Days => base - chrono::Duration::days(i64::from(self.value)),
+            DurationUnit::Weeks => base - chrono::Duration::weeks(i64::from(self.value)),
+            DurationUnit::Months => base
+                .checked_sub_months(Months::new(self.value))
+                .unwrap_or(DateTime::<Utc>::MIN_UTC),
+            DurationUnit::Years => base
+                .with_year(base.year() - i32::try_from(self.value).unwrap_or(i32::MAX))
+                .unwrap_or(DateTime::<Utc>::MIN_UTC),
+        }
+    }
+
     /// Parse from a string like `"90d"`, `"6m"`, `"1y"`, `"24h"`, `"2w"`.
     ///
     /// # Errors

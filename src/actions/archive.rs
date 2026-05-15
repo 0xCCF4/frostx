@@ -4,14 +4,22 @@ use crate::error::FrostxError;
 use chrono::Utc;
 use flate2::write::GzEncoder;
 use flate2::Compression as GzCompression;
+use std::collections::HashSet;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
 /// Static registration of all archive actions.
 pub const REGISTRY: &[(&str, ActionFactory)] =
-    &[("archive.tar_gz", |config| Ok(Box::new(TarGz::new(config))))];
+    &[("archive.compress", |config| Ok(Box::new(TarGz::new(config))))];
 
-/// Create a compressed archive of the project directory.
+/// Create a compressed archive of the project directory, replacing it.
+///
+/// The project directory is archived into a single file placed next to it in
+/// the parent directory. The archive contents are verified against the source
+/// before the original directory is removed, so the source is never deleted
+/// unless the archive is proven intact. The pipeline state is updated to
+/// reflect the new path so that subsequent actions (e.g. `backup.upload`)
+/// operate on the archive file.
 pub struct TarGz {
     compression: Compression,
 }
@@ -44,7 +52,7 @@ impl TarGz {
 
 impl Action for TarGz {
     fn name(&self) -> &'static str {
-        "archive.tar_gz"
+        "archive.compress"
     }
     fn kind(&self) -> ActionKind {
         ActionKind::Mutation
@@ -55,19 +63,36 @@ impl Action for TarGz {
 
         if ctx.dry_run {
             return Ok(ActionOutcome::dry_run(format!(
-                "would create {}",
+                "would archive {} → {}",
+                ctx.project_path.display(),
                 archive_path.display()
             )));
         }
 
+        // Create archive
         create_archive(ctx.project_path, &archive_path, &self.compression)?;
 
+        // Verify archive
+        if let Err(e) = verify_archive(ctx.project_path, &archive_path, &self.compression) {
+            // Archive is suspect — remove it so nothing broken is left behind.
+            let _ = std::fs::remove_file(&archive_path);
+            return Err(e);
+        }
+
+        // Only then delete the original files
+        std::fs::remove_dir_all(ctx.project_path)?;
+
         let meta = std::fs::metadata(&archive_path)?;
-        Ok(ActionOutcome::ok(format!(
-            "created {} ({})",
-            archive_path.display(),
-            human_size(meta.len())
-        )))
+        Ok(ActionOutcome {
+            status: crate::pipeline::ActionStatus::Ok,
+            message: format!(
+                "archived {} → {} ({})",
+                ctx.project_path.display(),
+                archive_path.display(),
+                human_size(meta.len())
+            ),
+            new_project_path: Some(archive_path),
+        })
     }
 }
 
@@ -100,6 +125,179 @@ fn append_dir<W: std::io::Write>(writer: W, src: &Path) -> Result<W, FrostxError
         .unwrap_or_else(|| std::ffi::OsStr::new("project"));
     builder.append_dir_all(name, src).map_err(FrostxError::Io)?;
     builder.into_inner().map_err(FrostxError::Io)
+}
+
+/// Verify that every file and symlink in `src` is present in `archive_path`
+/// with identical content. Returns an error if any entry is missing, has
+/// mismatched content, or if the archive cannot be read.
+///
+/// The source directory is left untouched on any error.
+fn verify_archive(
+    src: &Path,
+    archive_path: &Path,
+    compression: &Compression,
+) -> Result<(), FrostxError> {
+    let prefix = src
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("project"))
+        .to_os_string();
+
+    // Collect every regular file and symlink under src (as paths relative to src).
+    let mut src_entries: HashSet<PathBuf> = HashSet::new();
+    for entry in walkdir::WalkDir::new(src).follow_links(false) {
+        let entry = entry.map_err(|e| FrostxError::Io(e.into()))?;
+        let ft = entry.file_type();
+        if ft.is_file() || ft.is_symlink() {
+            let rel = entry
+                .path()
+                .strip_prefix(src)
+                .expect("walkdir entry is always inside src")
+                .to_path_buf();
+            src_entries.insert(rel);
+        }
+    }
+
+    let file = File::open(archive_path)?;
+    let seen = match compression {
+        Compression::Gz => {
+            let dec = flate2::read::GzDecoder::new(file);
+            verify_entries(tar::Archive::new(dec), src, &prefix)?
+        }
+        Compression::Zstd => {
+            let dec = zstd::Decoder::new(file).map_err(FrostxError::Io)?;
+            verify_entries(tar::Archive::new(dec), src, &prefix)?
+        }
+        Compression::Xz => {
+            let dec = xz2::read::XzDecoder::new(file);
+            verify_entries(tar::Archive::new(dec), src, &prefix)?
+        }
+    };
+
+    // Every source entry must appear in the archive.
+    if let Some(missing) = src_entries.difference(&seen).next() {
+        return Err(FrostxError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("archive is missing source file: {}", missing.display()),
+        )));
+    }
+
+    Ok(())
+}
+
+/// Walk all entries in `archive`, compare each file/symlink against `src`, and
+/// return the set of relative paths that were verified. Fails fast on the first
+/// mismatch.
+fn verify_entries<R: std::io::Read>(
+    mut archive: tar::Archive<R>,
+    src: &Path,
+    prefix: &std::ffi::OsStr,
+) -> Result<HashSet<PathBuf>, FrostxError> {
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+
+    for entry in archive.entries().map_err(FrostxError::Io)? {
+        let mut entry = entry.map_err(FrostxError::Io)?;
+        let path = entry.path().map_err(FrostxError::Io)?.into_owned();
+
+        // Strip the top-level project-directory prefix that append_dir inserts.
+        let rel = match path.strip_prefix(prefix) {
+            Ok(r) if !r.as_os_str().is_empty() => r.to_path_buf(),
+            _ => continue,
+        };
+
+        let entry_type = entry.header().entry_type();
+
+        if entry_type.is_dir() {
+            continue;
+        }
+
+        let src_path = src.join(&rel);
+
+        if entry_type.is_symlink() {
+            let archived_target = entry
+                .header()
+                .link_name()
+                .map_err(FrostxError::Io)?
+                .map(std::borrow::Cow::into_owned)
+                .unwrap_or_default();
+            let src_target = std::fs::read_link(&src_path).map_err(|e| {
+                FrostxError::Io(std::io::Error::new(
+                    e.kind(),
+                    format!(
+                        "cannot read symlink {} during verification: {e}",
+                        src_path.display()
+                    ),
+                ))
+            })?;
+            if archived_target != src_target {
+                return Err(FrostxError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "symlink target mismatch for {}: archive='{}' source='{}'",
+                        rel.display(),
+                        archived_target.display(),
+                        src_target.display()
+                    ),
+                )));
+            }
+            seen.insert(rel);
+        } else if entry_type.is_file() {
+            let src_file = File::open(&src_path).map_err(|e| {
+                FrostxError::Io(std::io::Error::new(
+                    e.kind(),
+                    format!(
+                        "source file not accessible during verification {}: {e}",
+                        rel.display()
+                    ),
+                ))
+            })?;
+            let mut src_reader = std::io::BufReader::new(src_file);
+            if !streams_equal(&mut src_reader, &mut entry).map_err(FrostxError::Io)? {
+                return Err(FrostxError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("content mismatch for {}", rel.display()),
+                )));
+            }
+            seen.insert(rel);
+        }
+        // Other entry types (hard links, char/block devices, fifos, extended
+        // headers) are not compared — they are uncommon in project directories.
+    }
+
+    Ok(seen)
+}
+
+/// Return `true` if both readers yield identical byte sequences.
+fn streams_equal<R1: std::io::Read, R2: std::io::Read>(
+    r1: &mut R1,
+    r2: &mut R2,
+) -> std::io::Result<bool> {
+    let mut buf1 = vec![0u8; 64 * 1024];
+    let mut buf2 = vec![0u8; 64 * 1024];
+    loop {
+        let n1 = read_filling(&mut *r1, &mut buf1)?;
+        let n2 = read_filling(&mut *r2, &mut buf2)?;
+        if n1 != n2 || buf1[..n1] != buf2[..n2] {
+            return Ok(false);
+        }
+        if n1 == 0 {
+            return Ok(true);
+        }
+    }
+}
+
+/// Read up to `buf.len()` bytes, retrying on `Interrupted`, stopping at EOF.
+/// Returns the number of bytes read (0 means EOF).
+fn read_filling<R: std::io::Read>(r: &mut R, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut total = 0;
+    while total < buf.len() {
+        match r.read(&mut buf[total..]) {
+            Ok(0) => break,
+            Ok(n) => total += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(total)
 }
 
 #[allow(clippy::cast_precision_loss)]
@@ -179,5 +377,117 @@ mod tests {
         };
         let out = action.run(&ctx).unwrap();
         assert_eq!(out.status, crate::pipeline::ActionStatus::DryRun);
+        // Source must not be deleted in dry-run mode.
+        assert!(src.path().exists());
+        assert!(out.new_project_path.is_none());
+    }
+
+    #[test]
+    fn run_replaces_project_dir_with_archive() {
+        // Create a parent dir and inside it a project sub-dir (simulates a real
+        // project layout where the archive lands next to the project folder).
+        let parent = tempdir().unwrap();
+        let project = parent.path().join("myproject");
+        std::fs::create_dir(&project).unwrap();
+        std::fs::write(project.join("main.rs"), "fn main() {}").unwrap();
+
+        let cfg = make_config(Compression::Gz);
+        let action = TarGz::new(&cfg);
+        let ctx = ActionContext {
+            project_path: &project,
+            config: &cfg,
+            dry_run: false,
+            yes: true,
+        };
+        let out = action.run(&ctx).unwrap();
+
+        assert_eq!(out.status, crate::pipeline::ActionStatus::Ok);
+        // Original directory must be gone.
+        assert!(!project.exists(), "original project dir must be removed");
+        // Archive must exist and be the returned new path.
+        let new_path = out.new_project_path.expect("new_project_path must be set");
+        assert!(new_path.exists(), "archive file must exist");
+        assert!(new_path.metadata().unwrap().len() > 0);
+    }
+
+    #[test]
+    fn verify_archive_passes_for_correct_archive() {
+        let parent = tempdir().unwrap();
+        let src = parent.path().join("myproject");
+        let archive_path = parent.path().join("myproject.tar.gz");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("a.txt"), "hello").unwrap();
+        std::fs::create_dir(src.join("sub")).unwrap();
+        std::fs::write(src.join("sub").join("b.txt"), "world").unwrap();
+
+        create_archive(&src, &archive_path, &Compression::Gz).unwrap();
+        verify_archive(&src, &archive_path, &Compression::Gz)
+            .expect("verification must pass for a correct archive");
+    }
+
+    #[test]
+    fn verify_archive_detects_content_mismatch() {
+        let parent = tempdir().unwrap();
+        let src = parent.path().join("myproject");
+        let archive_path = parent.path().join("myproject.tar.gz");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("data.txt"), "original").unwrap();
+
+        create_archive(&src, &archive_path, &Compression::Gz).unwrap();
+
+        // Tamper with the source after archiving.
+        std::fs::write(src.join("data.txt"), "tampered").unwrap();
+
+        let result = verify_archive(&src, &archive_path, &Compression::Gz);
+        assert!(
+            result.is_err(),
+            "verification must fail when source was modified after archiving"
+        );
+    }
+
+    #[test]
+    fn verify_archive_detects_missing_file() {
+        let parent = tempdir().unwrap();
+        let src = parent.path().join("myproject");
+        let archive_path = parent.path().join("myproject.tar.gz");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("a.txt"), "hello").unwrap();
+
+        create_archive(&src, &archive_path, &Compression::Gz).unwrap();
+
+        // Add a file to source after archiving.
+        std::fs::write(src.join("extra.txt"), "not archived").unwrap();
+
+        let result = verify_archive(&src, &archive_path, &Compression::Gz);
+        assert!(
+            result.is_err(),
+            "verification must fail when source has a file not in the archive"
+        );
+    }
+
+    #[test]
+    fn failed_verification_removes_archive_and_preserves_source() {
+        let parent = tempdir().unwrap();
+        let project = parent.path().join("myproject");
+        std::fs::create_dir(&project).unwrap();
+        std::fs::write(project.join("data.txt"), "original").unwrap();
+
+        let cfg = make_config(Compression::Gz);
+        let action = TarGz::new(&cfg);
+        let archive_path = action.archive_path(&project, &cfg.id);
+
+        create_archive(&project, &archive_path, &Compression::Gz).unwrap();
+
+        // Tamper with source so verification fails.
+        std::fs::write(project.join("data.txt"), "tampered").unwrap();
+
+        let result = verify_archive(&project, &archive_path, &Compression::Gz);
+        assert!(result.is_err());
+
+        // Simulate what run() does on failure: remove the archive.
+        let _ = std::fs::remove_file(&archive_path);
+
+        assert!(!archive_path.exists(), "corrupted archive must be removed");
+        assert!(project.exists(), "source directory must survive");
     }
 }

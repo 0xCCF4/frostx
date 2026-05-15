@@ -10,8 +10,6 @@ List of features, I would like to add, in no particular order. Not a roadmap, ju
   if the backend does not support that natively, we need to download the uploaded file and compare checksums, or
   something like that. Might mark then the completion to only do this once. For the ssh upload, not rsync, this should
   be done via remote checksum command, if supported, download only as fallback.
-- [ ] Add a global option to shift the time of the last activity, e.g. for testing purposes, or if the user would like
-  to force pipeline execution now.
 - [ ] The cleanup action should be agnostic of the files present, e.g. instead of hardcoding `target/` and
   `node_modules/`, it should check e.g. the presence of `Cargo.toml` and `package.json` and only then clean those
   folders. The user might hardcode some paths in addition to these options (which should also be enabled/disabled via

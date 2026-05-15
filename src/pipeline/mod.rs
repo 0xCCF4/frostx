@@ -5,7 +5,7 @@ use crate::error::FrostxError;
 use chrono::DateTime;
 use chrono::Utc;
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Status of a single action execution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -142,7 +142,7 @@ fn run_rule_actions(
     rule_name: Option<&str>,
     config: &ProjectConfig,
     state: &mut ProjectState,
-    project_path: &Path,
+    current_path: &mut PathBuf,
     dry_run: bool,
     force: bool,
     yes: bool,
@@ -180,17 +180,25 @@ fn run_rule_actions(
             continue;
         }
         let ctx = crate::actions::ActionContext {
-            project_path,
+            project_path: current_path.as_path(),
             config,
             dry_run,
             yes,
         };
         let outcome = match action.run(&ctx) {
-            Ok(ao) => ActionOutcome {
-                name: action_name.clone(),
-                status: ao.status.clone(),
-                message: ao.message.clone(),
-            },
+            Ok(ao) => {
+                if !dry_run {
+                    if let Some(new_path) = ao.new_project_path {
+                        state.project_path.clone_from(&new_path);
+                        *current_path = new_path;
+                    }
+                }
+                ActionOutcome {
+                    name: action_name.clone(),
+                    status: ao.status.clone(),
+                    message: ao.message.clone(),
+                }
+            }
             Err(e) => ActionOutcome {
                 name: action_name.clone(),
                 status: ActionStatus::Failed,
@@ -229,6 +237,9 @@ pub fn run(
     let expanded = config.expand_groups()?;
     let mut outcomes = Vec::new();
     let mut pipeline_failed = false;
+    // Tracks the live project path; updated in-place when an action relocates
+    // the project (e.g. archive.compress replaces the directory with an archive).
+    let mut current_path = project_path.to_path_buf();
 
     for (i, (rule, actions)) in config.rules.iter().zip(expanded.iter()).enumerate() {
         let index = i + 1;
@@ -271,7 +282,7 @@ pub fn run(
             rule.name.as_deref(),
             config,
             state,
-            project_path,
+            &mut current_path,
             opts.dry_run,
             opts.force,
             opts.yes,
@@ -411,10 +422,10 @@ mod tests {
         let cfg = make_config(vec![Rule {
             name: None,
             after: Duration::parse("90d").unwrap(),
-            actions: vec!["archive.tar_gz".into()],
+            actions: vec!["archive.compress".into()],
         }]);
         let mut state = ProjectState::default();
-        state.mark_completed(1, "archive.tar_gz");
+        state.mark_completed(1, "archive.compress");
         let old = Utc::now() - chrono::Duration::days(100);
         let outcomes = evaluate(&cfg, &state, old).unwrap();
         assert_eq!(
