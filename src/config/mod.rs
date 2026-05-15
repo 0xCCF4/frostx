@@ -1,5 +1,7 @@
 //! Configuration loading, validation, and state management.
 
+/// Streaming reader for `frostx.toml` and TOML fragments inside compressed archives.
+pub mod archive_reader;
 /// Once-per-day automation state stored in `$XDG_DATA_HOME/frostx/daily.toml`.
 pub mod daily;
 /// Duration parsing and elapsed-time arithmetic.
@@ -21,11 +23,18 @@ pub const CONFIG_FILENAME: &str = "frostx.toml";
 
 /// Locate and parse `frostx.toml` in `dir`, then resolve all includes.
 ///
+/// If `dir` is a file rather than a directory, it is treated as a compressed
+/// tar archive (created by `archive.compress`) and `frostx.toml` is read
+/// directly from within the archive without extracting it to disk.
+///
 /// # Errors
 ///
 /// Returns an error if the config file is missing, cannot be read, fails TOML
 /// parsing, or any included file cannot be resolved.
 pub fn load(dir: &Path, library_dir: &Path) -> Result<ProjectConfig, FrostxError> {
+    if dir.is_file() {
+        return load_from_archive(dir, library_dir);
+    }
     let path = config_path(dir);
     if !path.exists() {
         return Err(FrostxError::NotInitialized(dir.to_path_buf()));
@@ -34,6 +43,38 @@ pub fn load(dir: &Path, library_dir: &Path) -> Result<ProjectConfig, FrostxError
     let cfg: ProjectConfig = toml::from_str(&content)
         .map_err(|e| FrostxError::Config(diagnostics::format_toml_error(&e, &path)))?;
     include::resolve_includes(cfg, dir, library_dir)
+}
+
+/// Load a project config from a compressed tar archive by streaming its
+/// contents without extraction.
+///
+/// All `.toml` files inside the archive are buffered into memory in a single
+/// pass; `frostx.toml` is parsed as the primary config and relative includes
+/// are resolved against the in-memory buffer.
+///
+/// # Errors
+///
+/// Returns an error if the archive cannot be read, does not contain
+/// `frostx.toml`, or any referenced include cannot be resolved.
+fn load_from_archive(
+    archive_path: &Path,
+    library_dir: &Path,
+) -> Result<ProjectConfig, FrostxError> {
+    let entries = archive_reader::read_toml_entries(archive_path)?;
+
+    let config_content = entries
+        .get("frostx.toml")
+        .ok_or_else(|| FrostxError::NotInitialized(archive_path.to_path_buf()))?;
+
+    let cfg: ProjectConfig = toml::from_str(config_content).map_err(|e| {
+        FrostxError::Config(format!(
+            "config error in {} (inside archive {}): {e}",
+            "frostx.toml",
+            archive_path.display()
+        ))
+    })?;
+
+    include::resolve_includes_from_archive(cfg, library_dir, &entries)
 }
 
 /// Write a freshly initialized `frostx.toml` to `dir`.

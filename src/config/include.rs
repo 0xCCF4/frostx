@@ -3,6 +3,19 @@ use crate::error::FrostxError;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Source of TOML fragment content for include resolution.
+enum FragmentSource {
+    /// Read from the filesystem at the given path.
+    File(PathBuf),
+    /// Content was already buffered from an in-memory map (archive case).
+    Memory { key: String, content: String },
+    /// Relative path that cannot be resolved (e.g. `../` from inside archive).
+    Unresolvable {
+        source: String,
+        reason: &'static str,
+    },
+}
+
 /// Extract all `{{variable_name}}` placeholders from `content`.
 ///
 /// Only names consisting of ASCII alphanumeric characters or underscores are
@@ -46,6 +59,66 @@ pub fn resolve_includes(
     project_dir: &Path,
     library_dir: &Path,
 ) -> Result<ProjectConfig, FrostxError> {
+    resolve_includes_impl(base, |source| {
+        if source.starts_with('/') {
+            FragmentSource::File(PathBuf::from(source))
+        } else if source.starts_with("./") || source.starts_with("../") {
+            FragmentSource::File(project_dir.join(source))
+        } else {
+            FragmentSource::File(library_dir.join(format!("{source}.toml")))
+        }
+    })
+}
+
+/// Resolve all `include` entries in `base` where relative includes are
+/// satisfied from the in-memory TOML map produced by reading an archive.
+///
+/// Relative paths (`./` or `../`) are looked up in `archive_entries`; library
+/// and absolute includes are still resolved from the filesystem.  Relative
+/// `../` includes that would escape the project directory cannot be in the
+/// archive and are reported as errors.
+///
+/// # Errors
+///
+/// Returns an error if any included file cannot be found or parsed.
+pub fn resolve_includes_from_archive<S: std::hash::BuildHasher>(
+    base: ProjectConfig,
+    library_dir: &Path,
+    archive_entries: &HashMap<String, String, S>,
+) -> Result<ProjectConfig, FrostxError> {
+    resolve_includes_impl(base, |source| {
+        if source.starts_with('/') {
+            FragmentSource::File(PathBuf::from(source))
+        } else if source.starts_with("../") {
+            FragmentSource::Unresolvable {
+                source: source.to_owned(),
+                reason:
+                    "relative includes escaping the project root are not available in an archive",
+            }
+        } else if let Some(rel) = source.strip_prefix("./") {
+            // Look the file up inside the in-memory archive map.
+            if let Some(content) = archive_entries.get(rel) {
+                FragmentSource::Memory {
+                    key: rel.to_owned(),
+                    content: content.clone(),
+                }
+            } else {
+                FragmentSource::Unresolvable {
+                    source: source.to_owned(),
+                    reason: "file not found inside the archive",
+                }
+            }
+        } else {
+            // Bare library name.
+            FragmentSource::File(library_dir.join(format!("{source}.toml")))
+        }
+    })
+}
+
+fn resolve_includes_impl(
+    base: ProjectConfig,
+    resolve: impl Fn(&str) -> FragmentSource,
+) -> Result<ProjectConfig, FrostxError> {
     if base.include.is_empty() {
         return Ok(base);
     }
@@ -55,11 +128,32 @@ pub fn resolve_includes(
     let mut merged_config = ActionConfig::default();
 
     for source in &includes {
-        let path = resolve_source(source, project_dir, library_dir);
-        let fragment = load_fragment(&path, &base.template).map_err(|e| FrostxError::Include {
-            path: source.clone(),
-            message: e.to_string(),
-        })?;
+        let fragment = match resolve(source) {
+            FragmentSource::File(path) => {
+                load_fragment(&path, &base.template).map_err(|e| FrostxError::Include {
+                    path: source.clone(),
+                    message: e.to_string(),
+                })?
+            }
+            FragmentSource::Memory { key, content } => {
+                load_fragment_from_str(&content, &key, &base.template).map_err(|e| {
+                    FrostxError::Include {
+                        path: source.clone(),
+                        message: e.to_string(),
+                    }
+                })?
+            }
+            FragmentSource::Unresolvable {
+                source: src,
+                reason,
+            } => {
+                return Err(FrostxError::Include {
+                    path: src,
+                    message: reason.to_owned(),
+                });
+            }
+        };
+
         // Included rules are prepended (collected here, merged below in order).
         merged_rules.extend(fragment.rules);
         // Included groups: later includes and local win.
@@ -91,17 +185,6 @@ pub fn resolve_includes(
     })
 }
 
-fn resolve_source(source: &str, project_dir: &Path, library_dir: &Path) -> PathBuf {
-    if source.starts_with('/') {
-        PathBuf::from(source)
-    } else if source.starts_with("./") || source.starts_with("../") {
-        project_dir.join(source)
-    } else {
-        // Bare name - library lookup.
-        library_dir.join(format!("{source}.toml"))
-    }
-}
-
 /// A partial config that may appear in an included file (no `id`, no nested `include`).
 #[derive(Debug, serde::Deserialize)]
 struct Fragment {
@@ -116,6 +199,17 @@ struct Fragment {
 fn load_fragment(path: &Path, template: &HashMap<String, String>) -> Result<Fragment, FrostxError> {
     let raw = std::fs::read_to_string(path)?;
     let content = apply_template(&raw, template, path)?;
+    toml::from_str(&content)
+        .map_err(|e| FrostxError::Config(crate::diagnostics::format_toml_error(&e, path)))
+}
+
+fn load_fragment_from_str(
+    raw: &str,
+    display_name: &str,
+    template: &HashMap<String, String>,
+) -> Result<Fragment, FrostxError> {
+    let path = std::path::Path::new(display_name);
+    let content = apply_template(raw, template, path)?;
     toml::from_str(&content)
         .map_err(|e| FrostxError::Config(crate::diagnostics::format_toml_error(&e, path)))
 }
@@ -369,5 +463,76 @@ server = "{{missing_var}}"
             err.to_string().contains("missing_var"),
             "error should mention the variable name: {err}"
         );
+    }
+
+    #[test]
+    fn archive_relative_include_resolved_from_memory() {
+        let lib = tempdir().unwrap();
+        let mut cfg = base_config();
+        cfg.include = vec!["./extra.toml".into()];
+
+        let mut archive_entries = HashMap::new();
+        archive_entries.insert(
+            "extra.toml".into(),
+            "[[rule]]\nafter = \"30d\"\nactions = []\n".into(),
+        );
+
+        let result = resolve_includes_from_archive(cfg, lib.path(), &archive_entries).unwrap();
+        assert_eq!(result.rules.len(), 1);
+    }
+
+    #[test]
+    fn archive_missing_relative_include_is_error() {
+        let lib = tempdir().unwrap();
+        let mut cfg = base_config();
+        cfg.include = vec!["./missing.toml".into()];
+
+        let archive_entries: HashMap<String, String> = HashMap::new();
+
+        assert!(resolve_includes_from_archive(cfg, lib.path(), &archive_entries).is_err());
+    }
+
+    #[test]
+    fn archive_dotdot_include_is_error() {
+        let lib = tempdir().unwrap();
+        let mut cfg = base_config();
+        cfg.include = vec!["../outside.toml".into()];
+
+        let archive_entries: HashMap<String, String> = HashMap::new();
+
+        let err = resolve_includes_from_archive(cfg, lib.path(), &archive_entries).unwrap_err();
+        assert!(err.to_string().contains("outside"), "error: {err}");
+    }
+
+    #[test]
+    fn archive_library_include_resolved_from_filesystem() {
+        let lib = tempdir().unwrap();
+        std::fs::write(
+            lib.path().join("mylib.toml"),
+            "[[rule]]\nafter = \"7d\"\nactions = []\n",
+        )
+        .unwrap();
+
+        let mut cfg = base_config();
+        cfg.include = vec!["mylib".into()];
+
+        let archive_entries: HashMap<String, String> = HashMap::new();
+
+        let result = resolve_includes_from_archive(cfg, lib.path(), &archive_entries).unwrap();
+        assert_eq!(result.rules.len(), 1);
+    }
+
+    #[test]
+    fn archive_include_toml_syntax_error_fails_nicely() {
+        let lib = tempdir().unwrap();
+        let mut cfg = base_config();
+        cfg.include = vec!["./bad.toml".into()];
+
+        let mut archive_entries = HashMap::new();
+        archive_entries.insert("bad.toml".into(), "this is [not valid toml".into());
+
+        let err = resolve_includes_from_archive(cfg, lib.path(), &archive_entries).unwrap_err();
+        // Should report the file name and a parse error, not "not found".
+        assert!(err.to_string().contains("bad.toml"), "error: {err}");
     }
 }

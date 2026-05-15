@@ -30,6 +30,23 @@ actions = ["archive.compress"]
     fs::write(dir.join("frostx.toml"), config).unwrap();
 }
 
+/// Find the single `.tar.gz` file produced by `archive.compress` in `parent`.
+fn find_archive(parent: &std::path::Path) -> std::path::PathBuf {
+    fs::read_dir(parent)
+        .unwrap()
+        .filter_map(std::result::Result::ok)
+        .find(|e| e.file_name().to_string_lossy().ends_with(".tar.gz"))
+        .expect("archive must exist in parent directory")
+        .path()
+}
+
+fn touch_old(path: &std::path::Path) {
+    std::process::Command::new("touch")
+        .args(["-d", "48 hours ago", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+}
+
 fn make_old_file(dir: &std::path::Path) {
     let path = dir.join("old_file.txt");
     fs::write(&path, "old content").unwrap();
@@ -162,5 +179,127 @@ fn archive_state_updated_to_archive_path() {
     assert!(
         !state_content.contains("myproject\""),
         "state must not retain the original directory path"
+    );
+}
+
+#[test]
+fn check_on_archived_project_succeeds() {
+    let parent = tempdir().unwrap();
+    let project = parent.path().join("myproject");
+    fs::create_dir(&project).unwrap();
+    make_old_file(&project);
+    write_archive_config(&project);
+
+    let state_dir = tempdir().unwrap();
+
+    // Run once to archive the project.
+    let out = run_cmd(
+        &[
+            "--yes",
+            "--state-dir",
+            state_dir.path().to_str().unwrap(),
+            "run",
+            project.to_str().unwrap(),
+        ],
+        parent.path(),
+    );
+    assert!(
+        out.status.success(),
+        "initial run failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!project.exists(), "project dir must be replaced by archive");
+
+    let archive = find_archive(parent.path());
+
+    // `frostx check` must succeed when given the archive path.
+    let out = run_cmd(
+        &[
+            "--state-dir",
+            state_dir.path().to_str().unwrap(),
+            "check",
+            archive.to_str().unwrap(),
+        ],
+        parent.path(),
+    );
+    assert!(
+        out.status.success(),
+        "check on archive failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn run_on_archived_project_executes_further_rules() {
+    let parent = tempdir().unwrap();
+    let project = parent.path().join("myproject");
+    fs::create_dir(&project).unwrap();
+    make_old_file(&project);
+
+    let marker_path = parent.path().join("rule2_executed");
+    let config = format!(
+        r#"id = "a1b2c3d4-0000-0000-0000-000000000022"
+
+[config.hook.mark]
+command = "touch {marker}"
+kind = "check"
+
+[[rule]]
+after = "1h"
+actions = ["archive.compress"]
+
+[[rule]]
+after = "1h"
+actions = ["hook.mark"]
+"#,
+        marker = marker_path.display()
+    );
+    fs::write(project.join("frostx.toml"), &config).unwrap();
+
+    let state_dir = tempdir().unwrap();
+
+    // Run 1: archive the project (rule 1 fires).
+    let out = run_cmd(
+        &[
+            "--yes",
+            "--state-dir",
+            state_dir.path().to_str().unwrap(),
+            "run",
+            project.to_str().unwrap(),
+        ],
+        parent.path(),
+    );
+    assert!(
+        out.status.success(),
+        "run 1 failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!project.exists(), "project dir must be replaced by archive");
+
+    let archive = find_archive(parent.path());
+
+    // Make the archive appear old so that rule 2's threshold is met.
+    touch_old(&archive);
+
+    // Run 2: operate on the archive path; rule 2 must fire.
+    let out = run_cmd(
+        &[
+            "--yes",
+            "--state-dir",
+            state_dir.path().to_str().unwrap(),
+            "run",
+            archive.to_str().unwrap(),
+        ],
+        parent.path(),
+    );
+    assert!(
+        out.status.success(),
+        "run 2 on archive failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    assert!(
+        marker_path.exists(),
+        "rule 2 hook must have created the marker file"
     );
 }

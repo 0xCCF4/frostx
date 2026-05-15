@@ -170,6 +170,7 @@ pub fn create(name: &str, config: &ProjectConfig) -> Result<Box<dyn Action>, Fro
 /// Removing a directory that is an ancestor of the shell's CWD leaves the
 /// invoking shell with a broken working directory after the process exits.
 /// Actions that call `remove_dir_all` should call this guard before proceeding.
+#[must_use]
 pub fn cwd_is_inside(project_path: &Path) -> bool {
     let Ok(cwd) = std::env::current_dir() else {
         return false;

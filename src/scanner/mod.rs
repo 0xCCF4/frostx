@@ -32,13 +32,28 @@ impl ScanResult {
 /// Walk `dir` recursively and return the modification time of the most
 /// recently changed file.
 ///
-/// The `frostx.toml` itself is excluded so that `frostx run` does not
-/// reset the inactivity clock.
+/// If `dir` is a regular file (e.g. a compressed archive produced by
+/// `archive.compress`), the file's own modification time is returned
+/// directly without walking.
+///
+/// The `frostx.toml` file is excluded from directory scans so that
+/// `frostx run` does not reset the inactivity clock.
 ///
 /// # Errors
 ///
 /// Returns an error if the directory cannot be walked or file metadata cannot be read.
 pub fn scan(dir: &Path) -> Result<ScanResult, FrostxError> {
+    let meta = std::fs::metadata(dir)?;
+    if meta.is_file() {
+        let last_modified: DateTime<Utc> = meta
+            .modified()
+            .map_or(DateTime::<Utc>::MIN_UTC, DateTime::from);
+        return Ok(ScanResult {
+            last_modified,
+            file_count: 1,
+        });
+    }
+
     let mut latest: Option<DateTime<Utc>> = None;
     let mut file_count: u64 = 0;
 
@@ -51,13 +66,13 @@ pub fn scan(dir: &Path) -> Result<ScanResult, FrostxError> {
             continue;
         }
 
-        let meta = entry.metadata().map_err(|e| FrostxError::Io(e.into()))?;
-        if !meta.is_file() {
+        let entry_meta = entry.metadata().map_err(|e| FrostxError::Io(e.into()))?;
+        if !entry_meta.is_file() {
             continue;
         }
         file_count += 1;
 
-        let modified: DateTime<Utc> = meta
+        let modified: DateTime<Utc> = entry_meta
             .modified()
             .map_or(DateTime::<Utc>::MIN_UTC, DateTime::from);
 
@@ -131,5 +146,16 @@ mod tests {
             file_count: 1,
         };
         assert!(result.inactive_display().contains("days"));
+    }
+
+    #[test]
+    fn scan_archive_file_uses_file_mtime() {
+        let tmp = tempdir().unwrap();
+        let archive = tmp.path().join("project.tar.gz");
+        fs::write(&archive, b"fake archive content").unwrap();
+        let result = scan(&archive).unwrap();
+        // The archive is brand-new, so it should be very recent.
+        assert!(result.inactive_seconds() < 60);
+        assert_eq!(result.file_count, 1);
     }
 }
