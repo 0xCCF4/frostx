@@ -43,6 +43,11 @@ downward.
 **Key invariant:** `frostx.toml` is never written after `init`. State writes go only to the separate state file.
 `ProjectConfig` is therefore safe to hold as a shared reference.
 
+**Rule identity:** completion state is keyed by `Rule::rule_hash()` — a SHA-256 hex digest of the rule's `after` value
+and `actions` list (pre-group-expansion). Changing `after` or `actions` produces a new hash, silently discarding prior
+completion records for that rule. Changing only `name` preserves them. This makes completion state resilient to rule
+reordering and correctly invalidated on structural rule changes.
+
 **Include resolution** (`config/mod.rs`): include sources are resolved and merged before the local config is evaluated.
 Rules from includes are prepended; `[config.*]` and `[group.*]` are merged with local values taking precedence. Nested
 includes are currently not supported.
@@ -250,7 +255,7 @@ main() parses CLI
         │           for each action:
         │             actions::create(name, config) → Box<dyn Action>
         │             action.run(ctx) → ActionOutcome
-        │             state.mark_completed(...)       [mutations only]
+        │             state.mark_completed(rule_hash, ...) [mutations only]
         │             on_action(rule_idx, &outcome) → caller renders line
         │
         └─ state.save(state_dir, uuid)

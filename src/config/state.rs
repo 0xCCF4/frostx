@@ -18,10 +18,17 @@ pub struct ProjectState {
     pub rules: Vec<RuleState>,
 }
 
-/// State for one `[[rule]]` entry (1-indexed to match the config).
+/// State for one `[[rule]]` entry, keyed by the rule's content hash.
+///
+/// The `hash` is derived from the rule's `after` and `actions` fields (see
+/// [`crate::config::project::Rule::rule_hash`]). When the hash no longer
+/// matches any current rule, this entry is orphaned and ignored — completion
+/// state is silently reset for rules whose content changed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuleState {
-    pub index: usize,
+    /// SHA-256 hex digest of the rule's `after` + `actions` fields.
+    #[serde(default)]
+    pub hash: String,
     /// Names of mutation actions that have been successfully completed.
     #[serde(default)]
     pub completed: Vec<String>,
@@ -71,15 +78,15 @@ impl ProjectState {
         Ok(())
     }
 
-    /// Return the state for rule `index` (1-indexed), creating it if absent.
+    /// Return the state for the rule identified by `rule_hash`, creating it if absent.
     #[must_use]
-    pub fn rule_mut(&mut self, index: usize) -> &mut RuleState {
-        if let Some(pos) = self.rules.iter().position(|r| r.index == index) {
+    pub fn rule_mut(&mut self, rule_hash: &str) -> &mut RuleState {
+        if let Some(pos) = self.rules.iter().position(|r| r.hash == rule_hash) {
             &mut self.rules[pos]
         } else {
             let pos = self.rules.len();
             self.rules.push(RuleState {
-                index,
+                hash: rule_hash.to_string(),
                 completed: vec![],
                 last_run: None,
             });
@@ -87,22 +94,22 @@ impl ProjectState {
         }
     }
 
-    /// Return the state for rule `index`, or `None` if absent.
+    /// Return the state for the rule identified by `rule_hash`, or `None` if absent.
     #[must_use]
-    pub fn rule(&self, index: usize) -> Option<&RuleState> {
-        self.rules.iter().find(|r| r.index == index)
+    pub fn rule(&self, rule_hash: &str) -> Option<&RuleState> {
+        self.rules.iter().find(|r| r.hash == rule_hash)
     }
 
-    /// Check if mutation action `name` in rule `index` is already completed.
+    /// Check if mutation action `action_name` in the rule identified by `rule_hash` is already completed.
     #[must_use]
-    pub fn is_completed(&self, rule_index: usize, action_name: &str) -> bool {
-        self.rule(rule_index)
+    pub fn is_completed(&self, rule_hash: &str, action_name: &str) -> bool {
+        self.rule(rule_hash)
             .is_some_and(|r| r.completed.iter().any(|a| a == action_name))
     }
 
-    /// Mark mutation action `name` in rule `index` as completed.
-    pub fn mark_completed(&mut self, rule_index: usize, action_name: &str) {
-        let rule = self.rule_mut(rule_index);
+    /// Mark mutation action `action_name` in the rule identified by `rule_hash` as completed.
+    pub fn mark_completed(&mut self, rule_hash: &str, action_name: &str) {
+        let rule = self.rule_mut(rule_hash);
         if !rule.completed.iter().any(|a| a == action_name) {
             rule.completed.push(action_name.to_string());
         }
@@ -152,14 +159,14 @@ mod tests {
             last_scan: Some(Utc::now()),
             ..Default::default()
         };
-        state.mark_completed(1, "archive.compress");
+        state.mark_completed("abc123", "archive.compress");
 
         state.save(tmp.path(), uuid).unwrap();
         let loaded = ProjectState::load(tmp.path(), uuid).unwrap();
 
         assert_eq!(loaded.project_path, PathBuf::from("/some/project"));
-        assert!(loaded.is_completed(1, "archive.compress"));
-        assert!(!loaded.is_completed(1, "backup.upload"));
+        assert!(loaded.is_completed("abc123", "archive.compress"));
+        assert!(!loaded.is_completed("abc123", "backup.upload"));
     }
 
     #[test]
@@ -172,9 +179,17 @@ mod tests {
     #[test]
     fn mark_completed_idempotent() {
         let mut state = ProjectState::default();
-        state.mark_completed(1, "archive.compress");
-        state.mark_completed(1, "archive.compress");
-        assert_eq!(state.rule(1).unwrap().completed.len(), 1);
+        state.mark_completed("abc123", "archive.compress");
+        state.mark_completed("abc123", "archive.compress");
+        assert_eq!(state.rule("abc123").unwrap().completed.len(), 1);
+    }
+
+    #[test]
+    fn hash_change_resets_completion() {
+        let mut state = ProjectState::default();
+        state.mark_completed("hash_v1", "archive.compress");
+        assert!(state.is_completed("hash_v1", "archive.compress"));
+        assert!(!state.is_completed("hash_v2", "archive.compress"));
     }
 
     #[test]

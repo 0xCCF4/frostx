@@ -77,11 +77,12 @@ pub fn evaluate(
         let after_seconds = (Utc::now() - last_modified).num_seconds() - remaining;
         let after_seconds = after_seconds.max(0);
 
+        let rule_hash = rule.rule_hash();
         let action_outcomes = if triggered {
             actions
                 .iter()
                 .map(|name| {
-                    let completed = state.is_completed(index, name);
+                    let completed = state.is_completed(&rule_hash, name);
                     ActionOutcome {
                         name: name.clone(),
                         status: if completed {
@@ -140,6 +141,7 @@ fn run_rule_actions(
     actions: &[String],
     index: usize,
     rule_name: Option<&str>,
+    rule_hash: &str,
     config: &ProjectConfig,
     state: &mut ProjectState,
     current_path: &mut PathBuf,
@@ -168,7 +170,7 @@ fn run_rule_actions(
         let action = crate::actions::create(action_name, config)?;
         if action.kind() == crate::actions::ActionKind::Mutation
             && !force
-            && state.is_completed(index, action_name)
+            && state.is_completed(rule_hash, action_name)
         {
             let outcome = ActionOutcome {
                 name: action_name.clone(),
@@ -244,7 +246,7 @@ fn run_rule_actions(
             && (outcome.status == ActionStatus::Ok || outcome.status == ActionStatus::Completed)
             && action.kind() == crate::actions::ActionKind::Mutation
         {
-            state.mark_completed(index, action_name);
+            state.mark_completed(rule_hash, action_name);
         }
         on_action(index, rule_name, &outcome);
         outcomes.push(outcome);
@@ -310,10 +312,12 @@ pub fn run(
             });
             continue;
         }
+        let rule_hash = rule.rule_hash();
         let (action_outcomes, chain_failed) = run_rule_actions(
             actions,
             index,
             rule.name.as_deref(),
+            &rule_hash,
             config,
             state,
             &mut current_path,
@@ -455,13 +459,15 @@ mod tests {
     #[test]
     fn completed_action_shows_as_completed() {
         let id = Uuid::new_v4();
-        let cfg = make_config(vec![Rule {
+        let rule = Rule {
             name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["archive.compress".into()],
-        }]);
+        };
+        let rule_hash = rule.rule_hash();
+        let cfg = make_config(vec![rule]);
         let mut state = ProjectState::default();
-        state.mark_completed(1, "archive.compress");
+        state.mark_completed(&rule_hash, "archive.compress");
         let old = Utc::now() - chrono::Duration::days(100);
         let outcomes = evaluate(&cfg, &state, old).unwrap();
         assert_eq!(

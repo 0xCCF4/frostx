@@ -37,18 +37,32 @@ last_scan = "2025-04-01T08:00:00Z"
 
 # per-rule completion records (one entry per [[rule]] in frostx.toml)
 [[rule]]
-index = 1          # matches the 1-indexed rule in frostx.toml
-completed = [# actions that have been successfully executed and need not repeat
+# SHA-256 of the rule's `after` value and `actions` list - identifies this rule
+hash = "a3f1c2..."
+completed = [  # actions that have been successfully executed and need not repeat
     "archive.compress",
     "backup.upload",
 ]
 last_run = "2025-04-01T08:00:00Z"
 
 [[rule]]
-index = 2
+hash = "9e4b7d..."
 completed = []
-last_run = ""
+last_run = "2025-04-01T08:00:00Z"
 ```
+
+### Rule identity and config changes
+
+Each `[[rule]]` entry in the state file is keyed by a SHA-256 hash computed from the rule's `after` value and its
+`actions` list. This means:
+
+- **Reordering rules** in `frostx.toml` does not lose completion state — each rule is matched by content, not position.
+- **Changing `after` or `actions`** produces a new hash. The old state entry is no longer matched and completion is
+  silently reset — the rule is treated as if it has never run. This is intentional: a structurally different rule
+  should re-execute its actions.
+- **Changing only `name`** does not affect the hash and preserves completion state.
+- **Old state files** (from versions that stored `index` instead of `hash`) have no `hash` field; those entries default
+  to `hash = ""`, which never matches any rule, so completion state is silently discarded on first use.
 
 ## What Gets Recorded
 

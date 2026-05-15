@@ -208,6 +208,29 @@ pub struct Rule {
     pub actions: Vec<String>,
 }
 
+impl Rule {
+    /// Compute a stable hash of this rule's identity: `after` + `actions` list.
+    ///
+    /// Used by state tracking to detect config changes that should reset
+    /// completion records. Only `after` and `actions` contribute — changing
+    /// `name` alone does not invalidate prior completions.
+    #[must_use]
+    pub fn rule_hash(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(self.after.to_string().as_bytes());
+        for action in &self.actions {
+            hasher.update(b"\n");
+            hasher.update(action.as_bytes());
+        }
+        hasher.finalize().iter().fold(String::new(), |mut acc, b| {
+            use std::fmt::Write as _;
+            let _ = write!(acc, "{b:02x}");
+            acc
+        })
+    }
+}
+
 impl ProjectConfig {
     /// Expand all `group.<name>` references in every rule's action list.
     ///
