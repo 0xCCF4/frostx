@@ -195,16 +195,37 @@ compression = "gz"
 
 ## `[config.fs]`
 
-Controls which directories `fs.clean_artifacts` removes.
+Controls how `fs.clean_artifacts` detects and removes build artifact directories.
+
+`fs.clean_artifacts` uses named **cleaners** that each check for a language-specific marker
+file before removing anything. This prevents cleaning a `target/` directory in a project that
+just happens to have a folder by that name.
 
 ```toml
 [config.fs]
-clean_artifacts = ["target/", "node_modules/", ".venv/"]
+extra_paths = ["dist/", "build/"]  # removed unconditionally if they exist
+
+[config.fs.cleaners]
+rust   = true   # checks Cargo.toml   → removes target/
+node   = true   # checks package.json → removes node_modules/
+python = true   # checks pyproject.toml or setup.py → removes .venv/
 ```
 
-| Field             | Type             | Required | Default                                                                | Description                                                                        |
-|-------------------|------------------|----------|------------------------------------------------------------------------|------------------------------------------------------------------------------------|
-| `clean_artifacts` | array of strings | no       | `["target/", "node_modules/", ".venv/", "dist/", "build/", ".cache/"]` | Directory names to remove, relative to the project root. Trailing `/` is optional. |
+All cleaners are enabled by default when `[config.fs]` is absent.
+
+### `[config.fs]` fields
+
+| Field         | Type             | Required | Default | Description                                                                 |
+|---------------|------------------|----------|---------|-----------------------------------------------------------------------------|
+| `extra_paths` | array of strings | no       | `[]`    | Paths relative to the project root to always remove. Trailing `/` optional. |
+
+### `[config.fs.cleaners]` fields
+
+| Field    | Type | Required | Default | Description                                                          |
+|----------|------|----------|---------|----------------------------------------------------------------------|
+| `rust`   | bool | no       | `true`  | Detect `Cargo.toml`; remove `target/` if found.                      |
+| `node`   | bool | no       | `true`  | Detect `package.json`; remove `node_modules/` if found.              |
+| `python` | bool | no       | `true`  | Detect `pyproject.toml` or `setup.py`; remove `.venv/` if found.    |
 
 ---
 
@@ -246,7 +267,10 @@ server = "rsync://backup.example.com/projects"
 compression = "zstd"
 
 [config.fs]
-clean_artifacts = ["target/", "node_modules/"]
+extra_paths = ["dist/"]
+
+[config.fs.cleaners]
+python = false
 
 [config.hook.pre_archive]
 command = "make clean"

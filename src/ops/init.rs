@@ -22,7 +22,11 @@ pub struct InitArgs {
     pub description: Option<String>,
     /// Template variable values for `{{key}}` substitution in included files.
     pub template: HashMap<String, String>,
-    /// Overwrite an existing `frostx.toml` and assign a new UUID.
+    /// Assign a new UUID to an existing project without replacing the rest of
+    /// its configuration. When the target directory has no `frostx.toml` yet,
+    /// behaves identically to a fresh `init`. Any `--name`, `--description`,
+    /// `--include`, or `--template` flags passed alongside `--force` are applied
+    /// on top of the existing config.
     pub force: bool,
 }
 
@@ -41,16 +45,9 @@ pub fn execute(args: &InitArgs, opts: &FrostxOpts) -> Result<InitOutput, FrostxE
         return Err(FrostxError::AlreadyInitialized);
     }
 
-    // When --force reinitializes an existing project, capture the old UUID so we
-    // can delete its now-orphaned state file after writing the new config.
-    let old_uuid: Option<Uuid> = if args.force && config_path.exists() {
-        std::fs::read_to_string(&config_path)
-            .ok()
-            .and_then(|s| toml::from_str::<ProjectConfig>(&s).ok())
-            .map(|c| c.id)
-    } else {
-        None
-    };
+    if args.force && config_path.exists() {
+        return reinitialize(args, opts, path);
+    }
 
     let uuid = Uuid::new_v4();
     let cfg = ProjectConfig {
@@ -74,15 +71,55 @@ pub fn execute(args: &InitArgs, opts: &FrostxOpts) -> Result<InitOutput, FrostxE
 
     config::write_initial(path, &cfg)?;
 
-    if let Some(old) = old_uuid {
-        if old != uuid {
-            let _ = crate::config::state::ProjectState::delete(&opts.state_dir, old);
-        }
-    }
-
     Ok(InitOutput {
         path: path.clone(),
         uuid,
+    })
+}
+
+/// Re-initialize an existing project: assign a new UUID and apply any flag
+/// overrides, preserving all other configuration.
+///
+/// # Errors
+///
+/// Returns an error if the existing config cannot be read or parsed, or if the
+/// updated config cannot be written.
+fn reinitialize(
+    args: &InitArgs,
+    opts: &FrostxOpts,
+    path: &std::path::Path,
+) -> Result<InitOutput, FrostxError> {
+    let config_path = config::config_path(path);
+    let raw = std::fs::read_to_string(&config_path)?;
+    let mut cfg: ProjectConfig = toml::from_str(&raw)
+        .map_err(|e| FrostxError::Config(format!("failed to parse existing config: {e}")))?;
+
+    let old_uuid = cfg.id;
+    let new_uuid = Uuid::new_v4();
+    cfg.id = new_uuid;
+
+    if let Some(ref name) = args.name {
+        cfg.name = Some(name.clone());
+    }
+    if let Some(ref description) = args.description {
+        cfg.description = Some(description.clone());
+    }
+    if !args.includes.is_empty() {
+        cfg.include.clone_from(&args.includes);
+    }
+    for (k, v) in &args.template {
+        cfg.template.insert(k.clone(), v.clone());
+    }
+
+    config::write_initial(path, &cfg)?;
+
+    if old_uuid != new_uuid {
+        let _ = crate::config::state::ProjectState::delete(&opts.state_dir, old_uuid);
+    }
+
+    Ok(InitOutput {
+        path: path.to_path_buf(),
+        uuid: new_uuid,
     })
 }
 

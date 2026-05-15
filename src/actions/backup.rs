@@ -135,20 +135,39 @@ impl Action for Verify {
     fn name(&self) -> &'static str {
         "backup.verify"
     }
+
+    /// Verification is a one-time mutation: once the remote copy is confirmed intact
+    /// it does not need to be re-downloaded on every subsequent run.
     fn kind(&self) -> ActionKind {
-        ActionKind::Check
+        ActionKind::Mutation
     }
+
     fn supports_compressed_archive(&self) -> bool {
         true
     }
 
     fn run(&self, ctx: &ActionContext<'_>) -> Result<ActionOutcome, FrostxError> {
+        let archive = archive_path_for(ctx).ok_or_else(|| FrostxError::ActionFailed {
+            action: "backup.verify".into(),
+            message: "no local archive found - run archive.compress first".into(),
+        })?;
+
+        if ctx.dry_run {
+            return Ok(ActionOutcome::dry_run(format!(
+                "would verify {} against {}",
+                archive.display(),
+                self.server
+            )));
+        }
+
         let backend = backup::from_url(&self.server)?;
-        if backend.verify(ctx.config.id, "")? {
-            Ok(ActionOutcome::ok("backup verified"))
+        if backend.verify(ctx.config.id, &archive)? {
+            Ok(ActionOutcome::ok(
+                "backup verified: remote checksum matches local archive",
+            ))
         } else {
             Ok(ActionOutcome::failed(
-                "backup verification failed - archive not found or corrupt",
+                "backup verification failed: remote checksum does not match local archive",
             ))
         }
     }

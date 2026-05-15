@@ -55,7 +55,7 @@ cannot act on an archive represents a genuine pipeline configuration error.
 | `archive.compress`| No          | Always a completed mutation by the time this matters              |
 | `backup.check`    | **Yes**     | Queries backup server — no local filesystem access                |
 | `backup.upload`   | **Yes**     | Uploads the archive file                                          |
-| `backup.verify`   | **Yes**     | Verifies upload — no local filesystem access                      |
+| `backup.verify`   | **Yes**     | Verifies upload — reads the local archive for checksum comparison |
 | `local.delete`    | **Yes**     | Deletes the archive file                                          |
 | `hook.*`          | Opt-in      | Set `run_on_archive = true` in `[config.hook.<name>]`; default is not compatible         |
 | `notify.*`        | **Yes**     | Displays a message — no filesystem access                         |
@@ -181,18 +181,6 @@ server = "rsync://backup.example.com/projects"  # required
 
 ---
 
-### `backup.verify`
-
-Fails if the archive on the backup server cannot be read or its checksum does not match the locally recorded value.
-Intended immediately after `backup.upload` to confirm the transfer succeeded.
-
-```toml
-[config.backup]
-server = "rsync://backup.example.com/projects"  # required
-```
-
----
-
 ## Mutations
 
 ### `git.clean`
@@ -209,14 +197,27 @@ No configuration required.
 
 ### `fs.clean_artifacts`
 
-Deletes common build artifact directories before archiving, reducing archive size. Shows the list of directories and
-their sizes before asking for confirmation.
+Deletes build artifact directories before archiving, reducing archive size. Shows the list of directories and their
+sizes before asking for confirmation.
 
-Default targets: `target/`, `node_modules/`, `.venv/`, `dist/`, `build/`, `.cache/`
+Each built-in **cleaner** checks for a language-specific marker file before touching anything — so a `target/`
+directory is only removed when a `Cargo.toml` is also present.
+
+| Cleaner  | Marker file(s)                    | Removes          |
+|----------|-----------------------------------|------------------|
+| `rust`   | `Cargo.toml`                      | `target/`        |
+| `node`   | `package.json`                    | `node_modules/`  |
+| `python` | `pyproject.toml` or `setup.py`    | `.venv/`         |
+
+All cleaners are enabled by default. Use `[config.fs.cleaners]` to disable individual cleaners, and `extra_paths` for
+paths that should always be removed regardless of marker files.
 
 ```toml
 [config.fs]
-clean_artifacts = ["target/", "node_modules/"]  # override the default list
+extra_paths = ["dist/", "build/"]  # always removed if they exist
+
+[config.fs.cleaners]
+python = false  # skip Python detection entirely
 ```
 
 ---
@@ -251,6 +252,27 @@ compression = "gz"   # gz (default) | zstd | xz
 ### `backup.upload`
 
 Uploads the project to the configured backup server, with a progress indicator.
+
+```toml
+[config.backup]
+server = "rsync://backup.example.com/projects"  # required
+```
+
+---
+
+### `backup.verify`
+
+Confirms that the remote archive matches the local copy by checksum. Intended immediately after `backup.upload`.
+
+The verification strategy depends on the server URL scheme:
+
+- **`rsync://`** — uses `rsync --checksum --dry-run --itemize-changes` to compare the remote file against the local
+  archive without downloading it.
+- **`ssh://`** — runs `sha256sum` on the remote host via SSH and compares against a locally-computed SHA-256. Falls
+  back to downloading the archive and comparing checksums locally if the remote command is unavailable.
+
+`backup.verify` is a **mutation**: once the integrity of a specific upload is confirmed, frostx records the result
+and skips re-verification on subsequent runs (pass `--force` to re-verify).
 
 ```toml
 [config.backup]

@@ -47,7 +47,7 @@ fn init_twice_without_force_fails() {
 }
 
 #[test]
-fn init_force_overwrites() {
+fn init_force_changes_uuid() {
     let tmp = tempdir().unwrap();
     run(&["init", "."], tmp.path());
     let content1 = fs::read_to_string(tmp.path().join("frostx.toml")).unwrap();
@@ -55,6 +55,66 @@ fn init_force_overwrites() {
     let content2 = fs::read_to_string(tmp.path().join("frostx.toml")).unwrap();
     // UUID should differ after --force.
     assert_ne!(content1, content2);
+}
+
+#[test]
+fn init_force_preserves_existing_config() {
+    let tmp = tempdir().unwrap();
+    run(&["init", "."], tmp.path());
+    // Manually add a custom rule to simulate a real project.
+    let config_path = tmp.path().join("frostx.toml");
+    let mut content = fs::read_to_string(&config_path).unwrap();
+    content.push_str("\n[[rule]]\nafter = \"30d\"\nactions = [\"vcs.check_clean\"]\n");
+    fs::write(&config_path, &content).unwrap();
+
+    let uuid_before = content
+        .lines()
+        .find(|l| l.starts_with("id = "))
+        .unwrap()
+        .to_string();
+
+    run(&["init", "--force", "."], tmp.path());
+
+    let content_after = fs::read_to_string(&config_path).unwrap();
+    let uuid_after = content_after
+        .lines()
+        .find(|l| l.starts_with("id = "))
+        .unwrap()
+        .to_string();
+    assert_ne!(
+        uuid_before, uuid_after,
+        "UUID should be replaced by --force"
+    );
+    assert!(
+        content_after.contains("vcs.check_clean"),
+        "existing rule should be preserved"
+    );
+}
+
+#[test]
+fn init_force_applies_include_override() {
+    let tmp = tempdir().unwrap();
+    run(&["init", "."], tmp.path());
+    // Manually add a custom rule to verify it survives the --include override.
+    let config_path = tmp.path().join("frostx.toml");
+    let mut content = fs::read_to_string(&config_path).unwrap();
+    content.push_str("\n[[rule]]\nafter = \"60d\"\nactions = [\"vcs.check_clean\"]\n");
+    fs::write(&config_path, &content).unwrap();
+
+    run(
+        &["init", "--force", "--include", "new-template", "."],
+        tmp.path(),
+    );
+
+    let content_after = fs::read_to_string(tmp.path().join("frostx.toml")).unwrap();
+    assert!(
+        content_after.contains("new-template"),
+        "--include flag should update the include list"
+    );
+    assert!(
+        content_after.contains("vcs.check_clean"),
+        "existing rule should still be present after --include override"
+    );
 }
 
 #[test]

@@ -1,41 +1,121 @@
 use super::{Action, ActionContext, ActionFactory, ActionKind, ActionOutcome};
 use crate::config::project::ProjectConfig;
 use crate::error::FrostxError;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Static registration of all fs actions.
 pub const REGISTRY: &[(&str, ActionFactory)] = &[("fs.clean_artifacts", |config| {
     Ok(Box::new(CleanArtifacts::new(config)))
 })];
 
-/// Delete common build artifact directories before archiving.
+/// Detects a project type and returns the artifact paths to remove.
+///
+/// Each implementation checks for a language-specific marker file before returning
+/// any paths, so no artifacts are touched when the project type is not detected.
+pub(crate) trait Cleaner: Send + Sync {
+    /// Returns existing artifact paths under `project_path` for a detected project type.
+    /// Returns an empty vec if the project type is not detected or no artifacts exist.
+    fn artifacts(&self, project_path: &Path) -> Vec<PathBuf>;
+}
+
+struct RustCleaner;
+
+impl Cleaner for RustCleaner {
+    fn artifacts(&self, project_path: &Path) -> Vec<PathBuf> {
+        if !project_path.join("Cargo.toml").exists() {
+            return vec![];
+        }
+        let p = project_path.join("target");
+        if p.exists() {
+            vec![p]
+        } else {
+            vec![]
+        }
+    }
+}
+
+struct NodeCleaner;
+
+impl Cleaner for NodeCleaner {
+    fn artifacts(&self, project_path: &Path) -> Vec<PathBuf> {
+        if !project_path.join("package.json").exists() {
+            return vec![];
+        }
+        let p = project_path.join("node_modules");
+        if p.exists() {
+            vec![p]
+        } else {
+            vec![]
+        }
+    }
+}
+
+struct PythonCleaner;
+
+impl Cleaner for PythonCleaner {
+    fn artifacts(&self, project_path: &Path) -> Vec<PathBuf> {
+        let detected =
+            project_path.join("pyproject.toml").exists() || project_path.join("setup.py").exists();
+        if !detected {
+            return vec![];
+        }
+        let p = project_path.join(".venv");
+        if p.exists() {
+            vec![p]
+        } else {
+            vec![]
+        }
+    }
+}
+
+/// Delete build artifact directories before archiving.
 pub struct CleanArtifacts {
-    targets: Vec<String>,
+    cleaners: Vec<Box<dyn Cleaner>>,
+    extra_paths: Vec<String>,
 }
 
 impl CleanArtifacts {
-    /// Construct from project config, using the default artifact list if `[config.fs]` is absent.
+    /// Construct from project config, enabling all cleaners unless explicitly disabled.
+    #[must_use]
     pub fn new(config: &ProjectConfig) -> Self {
-        let targets = config.config.fs.as_ref().map_or_else(
-            crate::config::project::FsConfig::default_clean_artifacts,
-            |f| f.clean_artifacts.clone(),
-        );
-        Self { targets }
+        let fs = config.config.fs.clone().unwrap_or_default();
+
+        let mut cleaners: Vec<Box<dyn Cleaner>> = Vec::new();
+        if fs.cleaners.rust {
+            cleaners.push(Box::new(RustCleaner));
+        }
+        if fs.cleaners.node {
+            cleaners.push(Box::new(NodeCleaner));
+        }
+        if fs.cleaners.python {
+            cleaners.push(Box::new(PythonCleaner));
+        }
+
+        Self {
+            cleaners,
+            extra_paths: fs.extra_paths,
+        }
     }
 
-    fn find_targets(&self, project_path: &std::path::Path) -> Vec<(PathBuf, u64)> {
-        self.targets
-            .iter()
-            .filter_map(|t| {
-                let p = project_path.join(t.trim_end_matches('/'));
-                if p.exists() {
-                    let size = dir_size(&p);
-                    Some((p, size))
-                } else {
-                    None
-                }
-            })
-            .collect()
+    fn find_targets(&self, project_path: &Path) -> Vec<(PathBuf, u64)> {
+        let mut targets = Vec::new();
+
+        for cleaner in &self.cleaners {
+            for path in cleaner.artifacts(project_path) {
+                let size = dir_size(&path);
+                targets.push((path, size));
+            }
+        }
+
+        for extra in &self.extra_paths {
+            let p = project_path.join(extra.trim_end_matches('/'));
+            if p.exists() {
+                let size = dir_size(&p);
+                targets.push((p, size));
+            }
+        }
+
+        targets
     }
 }
 
@@ -43,6 +123,7 @@ impl Action for CleanArtifacts {
     fn name(&self) -> &'static str {
         "fs.clean_artifacts"
     }
+
     fn kind(&self) -> ActionKind {
         ActionKind::Mutation
     }
@@ -95,7 +176,7 @@ impl Action for CleanArtifacts {
     }
 }
 
-fn dir_size(path: &std::path::Path) -> u64 {
+fn dir_size(path: &Path) -> u64 {
     walkdir::WalkDir::new(path)
         .into_iter()
         .filter_map(std::result::Result::ok)
@@ -130,33 +211,35 @@ fn confirm(prompt: &str) -> Result<bool, FrostxError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::project::{ActionConfig, FsConfig};
+    use crate::config::project::{ActionConfig, CleanersConfig, FsConfig};
     use std::collections::HashMap;
     use tempfile::tempdir;
     use uuid::Uuid;
 
-    fn make_config_with_targets(targets: Vec<String>) -> crate::config::project::ProjectConfig {
+    fn make_config(fs: Option<FsConfig>) -> crate::config::project::ProjectConfig {
         crate::config::project::ProjectConfig {
             id: Uuid::new_v4(),
             name: None,
             description: None,
             include: vec![],
-            template: std::collections::HashMap::new(),
+            template: HashMap::new(),
             groups: HashMap::new(),
             config: ActionConfig {
-                fs: Some(FsConfig {
-                    clean_artifacts: targets,
-                }),
+                fs,
                 ..ActionConfig::default()
             },
             rules: vec![],
         }
     }
 
+    fn default_config() -> crate::config::project::ProjectConfig {
+        make_config(None)
+    }
+
     #[test]
-    fn no_artifacts_is_ok() {
+    fn no_marker_no_artifacts() {
         let tmp = tempdir().unwrap();
-        let cfg = make_config_with_targets(vec!["node_modules/".into()]);
+        let cfg = default_config();
         let action = CleanArtifacts::new(&cfg);
         let ctx = ActionContext {
             project_path: tmp.path(),
@@ -170,13 +253,14 @@ mod tests {
     }
 
     #[test]
-    fn removes_artifact_dir_with_yes() {
+    fn rust_cleaner_removes_target_when_cargo_toml_present() {
         let tmp = tempdir().unwrap();
-        let artifact = tmp.path().join("node_modules");
-        std::fs::create_dir(&artifact).unwrap();
-        std::fs::write(artifact.join("pkg.js"), "data").unwrap();
+        std::fs::write(tmp.path().join("Cargo.toml"), "[package]").unwrap();
+        let target = tmp.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("binary"), "data").unwrap();
 
-        let cfg = make_config_with_targets(vec!["node_modules/".into()]);
+        let cfg = default_config();
         let action = CleanArtifacts::new(&cfg);
         let ctx = ActionContext {
             project_path: tmp.path(),
@@ -186,16 +270,152 @@ mod tests {
         };
         let out = action.run(&ctx).unwrap();
         assert_eq!(out.status, crate::pipeline::ActionStatus::Ok);
-        assert!(!artifact.exists());
+        assert!(!target.exists());
+    }
+
+    #[test]
+    fn rust_cleaner_skips_target_without_cargo_toml() {
+        let tmp = tempdir().unwrap();
+        let target = tmp.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+
+        let cfg = default_config();
+        let action = CleanArtifacts::new(&cfg);
+        let ctx = ActionContext {
+            project_path: tmp.path(),
+            config: &cfg,
+            dry_run: false,
+            yes: true,
+        };
+        let out = action.run(&ctx).unwrap();
+        assert_eq!(out.status, crate::pipeline::ActionStatus::Ok);
+        assert!(out.message.contains("no artifact directories"));
+        assert!(target.exists());
+    }
+
+    #[test]
+    fn node_cleaner_removes_node_modules() {
+        let tmp = tempdir().unwrap();
+        std::fs::write(tmp.path().join("package.json"), "{}").unwrap();
+        let nm = tmp.path().join("node_modules");
+        std::fs::create_dir(&nm).unwrap();
+        std::fs::write(nm.join("pkg.js"), "data").unwrap();
+
+        let cfg = default_config();
+        let action = CleanArtifacts::new(&cfg);
+        let ctx = ActionContext {
+            project_path: tmp.path(),
+            config: &cfg,
+            dry_run: false,
+            yes: true,
+        };
+        let out = action.run(&ctx).unwrap();
+        assert_eq!(out.status, crate::pipeline::ActionStatus::Ok);
+        assert!(!nm.exists());
+    }
+
+    #[test]
+    fn python_cleaner_detects_pyproject_toml() {
+        let tmp = tempdir().unwrap();
+        std::fs::write(tmp.path().join("pyproject.toml"), "[project]").unwrap();
+        let venv = tmp.path().join(".venv");
+        std::fs::create_dir(&venv).unwrap();
+
+        let cfg = default_config();
+        let action = CleanArtifacts::new(&cfg);
+        let ctx = ActionContext {
+            project_path: tmp.path(),
+            config: &cfg,
+            dry_run: false,
+            yes: true,
+        };
+        let out = action.run(&ctx).unwrap();
+        assert_eq!(out.status, crate::pipeline::ActionStatus::Ok);
+        assert!(!venv.exists());
+    }
+
+    #[test]
+    fn python_cleaner_detects_setup_py() {
+        let tmp = tempdir().unwrap();
+        std::fs::write(tmp.path().join("setup.py"), "from setuptools import setup").unwrap();
+        let venv = tmp.path().join(".venv");
+        std::fs::create_dir(&venv).unwrap();
+
+        let cfg = default_config();
+        let action = CleanArtifacts::new(&cfg);
+        let ctx = ActionContext {
+            project_path: tmp.path(),
+            config: &cfg,
+            dry_run: false,
+            yes: true,
+        };
+        let out = action.run(&ctx).unwrap();
+        assert_eq!(out.status, crate::pipeline::ActionStatus::Ok);
+        assert!(!venv.exists());
+    }
+
+    #[test]
+    fn disabled_cleaner_does_not_run() {
+        let tmp = tempdir().unwrap();
+        std::fs::write(tmp.path().join("Cargo.toml"), "[package]").unwrap();
+        let target = tmp.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+
+        let cfg = make_config(Some(FsConfig {
+            cleaners: CleanersConfig {
+                rust: false,
+                node: true,
+                python: true,
+            },
+            ..FsConfig::default()
+        }));
+        let action = CleanArtifacts::new(&cfg);
+        let ctx = ActionContext {
+            project_path: tmp.path(),
+            config: &cfg,
+            dry_run: false,
+            yes: true,
+        };
+        let out = action.run(&ctx).unwrap();
+        assert_eq!(out.status, crate::pipeline::ActionStatus::Ok);
+        assert!(out.message.contains("no artifact directories"));
+        assert!(target.exists());
+    }
+
+    #[test]
+    fn extra_paths_removed_unconditionally() {
+        let tmp = tempdir().unwrap();
+        let custom = tmp.path().join("build");
+        std::fs::create_dir(&custom).unwrap();
+
+        let cfg = make_config(Some(FsConfig {
+            extra_paths: vec!["build/".into()],
+            cleaners: CleanersConfig {
+                rust: false,
+                node: false,
+                python: false,
+            },
+        }));
+        let action = CleanArtifacts::new(&cfg);
+        let ctx = ActionContext {
+            project_path: tmp.path(),
+            config: &cfg,
+            dry_run: false,
+            yes: true,
+        };
+        let out = action.run(&ctx).unwrap();
+        assert_eq!(out.status, crate::pipeline::ActionStatus::Ok);
+        assert!(!custom.exists());
     }
 
     #[test]
     fn dry_run_does_not_remove() {
         let tmp = tempdir().unwrap();
-        let artifact = tmp.path().join("target");
-        std::fs::create_dir(&artifact).unwrap();
+        std::fs::write(tmp.path().join("Cargo.toml"), "[package]").unwrap();
+        let target = tmp.path().join("target");
+        std::fs::create_dir(&target).unwrap();
 
-        let cfg = make_config_with_targets(vec!["target/".into()]);
+        let cfg = default_config();
         let action = CleanArtifacts::new(&cfg);
         let ctx = ActionContext {
             project_path: tmp.path(),
@@ -205,7 +425,7 @@ mod tests {
         };
         let out = action.run(&ctx).unwrap();
         assert_eq!(out.status, crate::pipeline::ActionStatus::DryRun);
-        assert!(artifact.exists());
+        assert!(target.exists());
     }
 
     #[test]

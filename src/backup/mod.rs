@@ -18,12 +18,17 @@ pub trait BackupBackend: Send + Sync {
     /// Returns an error if the upload fails or the backend is unreachable.
     fn upload(&self, uuid: Uuid, archive_path: &Path) -> Result<String, FrostxError>;
 
-    /// Verify that the archive on the backend matches `expected_checksum`.
+    /// Verify that the archive on the backend matches `local_archive` by checksum.
+    ///
+    /// Implementations choose the most efficient strategy: native backend checksum
+    /// (e.g. `rsync --checksum`), a remote `sha256sum` command, or a full download
+    /// and local comparison as a last resort.
     ///
     /// # Errors
     ///
-    /// Returns an error if verification cannot be performed.
-    fn verify(&self, uuid: Uuid, expected_checksum: &str) -> Result<bool, FrostxError>;
+    /// Returns an error if verification cannot be performed (network failure, binary
+    /// not found, etc.).
+    fn verify(&self, uuid: Uuid, local_archive: &std::path::Path) -> Result<bool, FrostxError>;
 }
 
 /// Factory function type: creates a [`Box<dyn BackupBackend>`] from a server URL string.

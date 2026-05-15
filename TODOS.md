@@ -2,17 +2,6 @@
 
 List of features, I would like to add, in no particular order. Not a roadmap, just a brain dump of ideas.
 
-- [ ] For verification that the project is put to the remote folder, we must always check the integrity of the upload,
-  if the backend does not support that natively, we need to download the uploaded file and compare checksums, or
-  something like that. Might mark then the completion to only do this once. For the ssh upload, not rsync, this should
-  be done via remote checksum command, if supported, download only as fallback.
-- [ ] The cleanup action should be agnostic of the files present, e.g. instead of hardcoding `target/` and
-  `node_modules/`, it should check e.g. the presence of `Cargo.toml` and `package.json` and only then clean those
-  folders. The user might hardcode some paths in addition to these options (which should also be enabled/disabled via
-  config). Probably best here a trait such that easily new cleaners can be added, e.g. `RustCleaner`, `NodeCleaner`,
-  `PythonCleaner`, etc.
-- [ ] The `frostx init --force` should not overwrite the existing `frostx.toml`, but only update the `id` field if a
-  config file is already present, to avoid losing existing configuration.
 - [ ] Add a new rule option to only run once, hence, the whole rule can be marked as completed after the first
   successful run.
 - [ ] Architecture change: currently, config is applied to all actions, extend to allow for different parameters per

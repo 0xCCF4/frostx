@@ -129,35 +129,47 @@ impl Compression {
     }
 }
 
-/// `[config.fs]` section - controls which artifact directories `fs.clean_artifacts` removes.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// `[config.fs]` section - controls `fs.clean_artifacts` behavior.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FsConfig {
-    /// Directory names relative to the project root that will be removed.
-    #[serde(default = "FsConfig::default_clean_artifacts")]
-    pub clean_artifacts: Vec<String>,
+    /// Additional paths to always remove, relative to the project root.
+    /// Trailing `/` is optional. Processed unconditionally regardless of marker files.
+    #[serde(default)]
+    pub extra_paths: Vec<String>,
+    /// Per-cleaner enable flags. All cleaners are enabled by default.
+    #[serde(default)]
+    pub cleaners: CleanersConfig,
 }
 
-impl Default for FsConfig {
+/// Enables or disables each auto-detecting cleaner independently.
+///
+/// Each cleaner checks for a language-specific marker file before touching anything.
+/// All cleaners are enabled when `[config.fs.cleaners]` is absent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanersConfig {
+    /// Detect `Cargo.toml`; remove `target/` if found.
+    #[serde(default = "default_true")]
+    pub rust: bool,
+    /// Detect `package.json`; remove `node_modules/` if found.
+    #[serde(default = "default_true")]
+    pub node: bool,
+    /// Detect `pyproject.toml` or `setup.py`; remove `.venv/` if found.
+    #[serde(default = "default_true")]
+    pub python: bool,
+}
+
+impl Default for CleanersConfig {
     fn default() -> Self {
         Self {
-            clean_artifacts: Self::default_clean_artifacts(),
+            rust: true,
+            node: true,
+            python: true,
         }
     }
 }
 
-impl FsConfig {
-    /// The built-in artifact directory list used when `[config.fs]` is absent.
-    #[must_use]
-    pub fn default_clean_artifacts() -> Vec<String> {
-        vec![
-            "target/".into(),
-            "node_modules/".into(),
-            ".venv/".into(),
-            "dist/".into(),
-            "build/".into(),
-            ".cache/".into(),
-        ]
-    }
+fn default_true() -> bool {
+    true
 }
 
 /// `[config.hook.<name>]` section - defines a named shell command action.
