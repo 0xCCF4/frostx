@@ -179,6 +179,40 @@ fn run_rule_actions(
             outcomes.push(outcome);
             continue;
         }
+        if current_path.is_file() && !action.supports_compressed_archive() {
+            let (status, message, fails_chain) =
+                if action.kind() == crate::actions::ActionKind::Check {
+                    // Check actions are re-evaluated gates; if the project has
+                    // already been compressed they are no longer applicable.
+                    (
+                        ActionStatus::Skipped,
+                        format!("'{action_name}' skipped: project is a compressed archive"),
+                        false,
+                    )
+                } else {
+                    // A mutation that cannot operate on a compressed archive is a
+                    // configuration error — stop the chain.
+                    (
+                        ActionStatus::Failed,
+                        format!(
+                            "'{action_name}' cannot run on a compressed archive; \
+                             this action requires an uncompressed project directory"
+                        ),
+                        true,
+                    )
+                };
+            let outcome = ActionOutcome {
+                name: action_name.clone(),
+                status,
+                message,
+            };
+            on_action(index, rule_name, &outcome);
+            outcomes.push(outcome);
+            if fails_chain {
+                chain_failed = true;
+            }
+            continue;
+        }
         let ctx = crate::actions::ActionContext {
             project_path: current_path.as_path(),
             config,
@@ -365,6 +399,7 @@ mod tests {
             HookConfig {
                 command: "exit 1".into(),
                 kind: HookKind::Check,
+                run_on_archive: false,
             },
         );
         hooks.insert(
@@ -372,6 +407,7 @@ mod tests {
             HookConfig {
                 command: "true".into(),
                 kind: HookKind::Check,
+                run_on_archive: false,
             },
         );
         let cfg = ProjectConfig {

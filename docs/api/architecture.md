@@ -21,7 +21,7 @@ main.rs  (CLI adapter only - no business logic)
        ├─ scanner     (filesystem walk → last-modified timestamp)
        ├─ pipeline    (rule evaluation + action execution)
        │    └─ actions/* (Action trait implementations)
-       │         └─ backup/* (rsync/SSH backends)
+       │         └─ backup/* (BackupBackend trait + per-scheme registry)
        └─ output/*   (data structs + human-readable / JSON/NDJSON renderers)
 ```
 
@@ -82,10 +82,15 @@ Executes the pipeline:
 2. For each triggered rule, iterates actions in order.
 3. Skips completed mutations (unless `opts.force`).
 4. Calls `actions::create(name, config)` to instantiate the action.
-5. Calls `action.run(ctx)`.
-6. On success, records completed mutations via `state.mark_completed()`.
-7. On failure, sets `chain_failed = true`; subsequent actions in the same rule get `ActionStatus::Skipped`.
-8. Calls `on_action(rule_index, &outcome)` after every action - callers use this to stream output.
+5. If `current_path.is_file()` and `!action.supports_compressed_archive()`:
+   - Check → `ActionStatus::Skipped`, chain continues.
+   - Mutation → `ActionStatus::Failed`, chain stops.
+6. Calls `action.run(ctx)`.
+7. On success, records completed mutations via `state.mark_completed()`. If the outcome carries
+   `new_project_path`, updates `state.project_path` and `current_path` for all subsequent actions (this is how
+   `archive.compress` hands off the archive file path to `backup.upload`, etc.).
+8. On failure, sets `chain_failed = true`; subsequent actions in the same rule get `ActionStatus::Skipped`.
+9. Calls `on_action(rule_index, &outcome)` after every action - callers use this to stream output.
 
 Rules are independent: a failed chain in rule 1 does not affect rule 2.
 
@@ -99,6 +104,7 @@ Rules are independent: a failed chain in rule 1 does not affect rule 2.
 pub trait Action: Send + Sync {
     fn name(&self) -> &'static str;
     fn kind(&self) -> ActionKind;
+    fn supports_compressed_archive(&self) -> bool { false }
     fn run(&self, ctx: &ActionContext<'_>) -> Result<ActionOutcome, FrostxError>;
 }
 ```
@@ -107,13 +113,31 @@ pub trait Action: Send + Sync {
 
 | Field          | Type             | Description                                              |
 |----------------|------------------|----------------------------------------------------------|
-| `project_path` | `&Path`          | Absolute path to the project root                        |
+| `project_path` | `&Path`          | Absolute path to the project root (or archive file)      |
 | `config`       | `&ProjectConfig` | Parsed `frostx.toml` (read-only)                         |
 | `dry_run`      | `bool`           | When true, report what would happen without side effects |
 | `yes`          | `bool`           | When true, skip interactive prompts                      |
 
 `ActionOutcome` has a `status: ActionStatus` and a human-readable `message: String`. Construct with the convenience
 methods: `ActionOutcome::ok`, `::failed`, `::skipped`, `::dry_run`.
+
+**`supports_compressed_archive`** — return `true` if your action can operate correctly when `project_path` is a
+compressed archive file rather than a directory. The default is `false`. The pipeline engine checks this before
+calling `run`:
+
+- If `project_path.is_file()` and the action returns `false`:
+  - `Check` actions produce `ActionStatus::Skipped` and the chain continues.
+  - `Mutation` actions produce `ActionStatus::Failed` and the chain stops.
+- Already-completed mutations are skipped before this check fires, so actions completed in a prior run are never
+  re-evaluated against the compressed-archive gate.
+
+Actions that set `supports_compressed_archive` to `true` must handle a file `project_path` correctly. When the path
+is a file, `parent()` gives the directory to operate in. The `hook` implementation uses this pattern for its
+`current_dir`.
+
+**`hook.*` actions** are a special case: `supports_compressed_archive` delegates to `HookConfig::run_on_archive`,
+which is a user-controlled `bool` field that defaults to `false`. This gives users explicit control over which of
+their hooks are safe to run on an archive target, rather than opt-ing in all hooks globally.
 
 #### Registration
 
@@ -130,10 +154,37 @@ Adding a new static action requires only:
 
 ### `backup`
 
-A `Backend` trait with `upload`, `verify`, and `check` methods. Implementations:
+#### The `BackupBackend` trait
 
-- `rsync` - shells out to `rsync`; URL scheme `rsync://`
-- (future) `ssh` - URL scheme `ssh://`
+```rust
+pub trait BackupBackend: Send + Sync {
+    fn check(&self, uuid: Uuid) -> Result<bool, FrostxError>;
+    fn upload(&self, uuid: Uuid, archive_path: &Path) -> Result<String, FrostxError>;
+    fn verify(&self, uuid: Uuid, expected_checksum: &str) -> Result<bool, FrostxError>;
+}
+```
+
+`backup::from_url(server)` parses the URL scheme and returns a `Box<dyn BackupBackend>`.
+
+#### Registration
+
+Each backend module owns a `pub const REGISTRY: &[(&str, BackendFactory)]` that maps URL scheme prefixes to constructor
+closures. `backup::from_url` iterates `ALL_BACKENDS` (a list of all module registries defined in `backup/mod.rs`) and
+returns the first matching backend. The error message is derived from the registry automatically.
+
+`BackendFactory = fn(&str) -> Box<dyn BackupBackend>` — the factory receives the full URL string.
+
+Current backends:
+
+| Module  | Schemes              | Implementation                  |
+|---------|----------------------|---------------------------------|
+| `rsync` | `rsync://`, `ssh://` | Shells out to the `rsync` binary |
+
+Adding a new backend requires only:
+
+1. Creating a submodule under `src/backup/` and implementing `BackupBackend`.
+2. Exposing `pub const REGISTRY: &[(&str, BackendFactory)]` in that module.
+3. Adding the module's `REGISTRY` to `ALL_BACKENDS` in `backup/mod.rs`.
 
 The backup actions in `src/actions/backup.rs` delegate to the appropriate backend based on the `server` URL in
 `[config.backup]`.

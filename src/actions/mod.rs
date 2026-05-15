@@ -116,6 +116,16 @@ pub trait Action: Send + Sync {
     /// Whether this action is a check or mutation.
     fn kind(&self) -> ActionKind;
 
+    /// Whether this action can operate when `project_path` points to a
+    /// compressed archive file rather than a project directory.
+    ///
+    /// Defaults to `false`. Override to `true` only for actions whose
+    /// implementation handles a file path correctly (e.g. backup operations
+    /// that work on the archive, or `local.delete` which can remove a file).
+    fn supports_compressed_archive(&self) -> bool {
+        false
+    }
+
     /// Execute the action and return an outcome.
     ///
     /// # Errors

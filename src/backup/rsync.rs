@@ -1,8 +1,15 @@
-use super::BackupBackend;
+use super::{BackendFactory, BackupBackend};
 use crate::error::FrostxError;
 use std::path::Path;
 use std::process::Command;
 use uuid::Uuid;
+
+/// Scheme-to-factory map for this backend. Both `rsync://` and `ssh://` are
+/// handled by the same [`RsyncBackend`] implementation.
+pub const REGISTRY: &[(&str, BackendFactory)] = &[
+    ("rsync://", |url| Box::new(RsyncBackend::new(url))),
+    ("ssh://", |url| Box::new(RsyncBackend::new(url))),
+];
 
 /// Backup backend that shells out to the `rsync` binary.
 pub struct RsyncBackend {

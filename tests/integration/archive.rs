@@ -243,6 +243,7 @@ fn run_on_archived_project_executes_further_rules() {
 [config.hook.mark]
 command = "touch {marker}"
 kind = "check"
+run_on_archive = true
 
 [[rule]]
 after = "1h"

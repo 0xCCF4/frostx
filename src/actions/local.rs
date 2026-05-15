@@ -14,6 +14,9 @@ impl Action for Delete {
     fn kind(&self) -> ActionKind {
         ActionKind::Mutation
     }
+    fn supports_compressed_archive(&self) -> bool {
+        true
+    }
 
     fn run(&self, ctx: &ActionContext<'_>) -> Result<ActionOutcome, FrostxError> {
         let path = ctx.project_path;
@@ -53,7 +56,11 @@ impl Action for Delete {
             return Ok(ActionOutcome::skipped("cancelled by user"));
         }
 
-        std::fs::remove_dir_all(path)?;
+        if path.is_file() {
+            std::fs::remove_file(path)?;
+        } else {
+            std::fs::remove_dir_all(path)?;
+        }
         Ok(ActionOutcome::ok(format!("deleted {}", path.display())))
     }
 }

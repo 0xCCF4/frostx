@@ -14,6 +14,68 @@ Within a rule, actions execute in declaration order. The first failure stops the
 frostx is an interactive tool - before any destructive mutation executes, it prints a summary of what is about to happen
 and asks for confirmation. Pass `--yes` to skip confirmations (e.g. in scripts).
 
+---
+
+## Actions after `archive.compress`
+
+`archive.compress` **replaces** the project directory with a single archive file. Every action that runs after it in
+the same rule — including on subsequent re-runs — receives the archive file path as `project_path` rather than a
+directory.
+
+Most actions are designed to operate on a live project directory (VCS operations, filesystem cleanups, etc.) and cannot
+meaningfully run against a compressed archive. frostx enforces this automatically:
+
+| Action kind | Compressed-archive compatible? | Behavior                                        |
+|-------------|--------------------------------|-------------------------------------------------|
+| Check       | No                             | **Skipped** — chain continues                   |
+| Mutation    | No                             | **Failed** — chain stops                        |
+| Check       | Yes                            | Runs normally                                   |
+| Mutation    | Yes (already completed)        | **Completed** — skipped as in any other re-run  |
+| Mutation    | Yes (not yet completed)        | Runs normally                                   |
+
+Checks are skipped rather than failed because they are re-evaluated gates: if the project has already been archived the
+condition they assert (e.g., "working tree is clean") no longer applies. Mutations are failed because a mutation that
+cannot act on an archive represents a genuine pipeline configuration error.
+
+### Which actions are archive-compatible
+
+| Action            | Compatible? | Notes                                                             |
+|-------------------|-------------|-------------------------------------------------------------------|
+| `vcs.check_clean` | No          | Skipped when project is an archive                                |
+| `vcs.check_pushed`| No          | Skipped when project is an archive                                |
+| `vcs.mark`        | No          | Fails when project is an archive                                  |
+| `git.check_clean` | No          | Skipped when project is an archive                                |
+| `git.check_pushed`| No          | Skipped when project is an archive                                |
+| `git.clean`       | No          | Fails when project is an archive                                  |
+| `git.tag`         | No          | Fails when project is an archive                                  |
+| `jj.check_clean`  | No          | Skipped when project is an archive                                |
+| `jj.check_pushed` | No          | Skipped when project is an archive                                |
+| `jj.bookmark`     | No          | Fails when project is an archive                                  |
+| `fs.clean_artifacts` | No       | Fails when project is an archive                                  |
+| `archive.compress`| No          | Always a completed mutation by the time this matters              |
+| `backup.check`    | **Yes**     | Queries backup server — no local filesystem access                |
+| `backup.upload`   | **Yes**     | Uploads the archive file                                          |
+| `backup.verify`   | **Yes**     | Verifies upload — no local filesystem access                      |
+| `local.delete`    | **Yes**     | Deletes the archive file                                          |
+| `hook.*`          | Opt-in      | Set `run_on_archive = true` in `[config.hook.<name>]`; default is not compatible         |
+| `notify.*`        | **Yes**     | Displays a message — no filesystem access                         |
+
+### Re-runs after a partial pipeline
+
+Because VCS check actions are skipped (not failed) when the project is an archive, a pipeline that was interrupted
+mid-way through — say `backup.upload` failed on the first run — will resume cleanly on the next run:
+
+```
+Run 1: git.check_clean ✓  archive.compress ✓  backup.upload ✗  (network error)
+Run 2: git.check_clean ↷  archive.compress ✓  backup.upload ✓  backup.verify ✓
+                      ↑
+                      Skipped — project is now an archive
+```
+
+The mutation `archive.compress` is shown as `Completed` because it was recorded in state on run 1. The check
+`git.check_clean` is skipped because the project is a compressed archive. The pipeline proceeds to `backup.upload`
+and completes.
+
 ## Configuration
 
 Actions that require parameters are configured in a top-level `[config.<category>]` section of `frostx.toml`, separate
@@ -173,8 +235,9 @@ No configuration required.
 Creates a compressed archive of the project directory and **replaces** the project directory with it. The original
 directory is removed after the archive is written successfully.
 
-The pipeline state is updated so that subsequent actions (e.g. `backup.upload`) receive the archive file path as
-their project path.
+After this action completes, all subsequent actions in the pipeline receive the archive file path as their
+`project_path`. Actions that cannot operate on a compressed archive are skipped (checks) or failed (mutations). See
+[Actions after `archive.compress`](#actions-after-archivecompress) for details.
 
 Output: `<parent-dir>/<project-dir>-<uuid>-<date>.tar.gz`
 
@@ -198,8 +261,7 @@ server = "rsync://backup.example.com/projects"  # required
 
 ### `hook`
 
-Runs an arbitrary shell command in the project directory via `sh -c`. Stdout and stderr are captured and included in the
-action message.
+Runs an arbitrary shell command via `sh -c`. Stdout and stderr are captured and included in the action message.
 
 Exit code determines behavior:
 
@@ -208,6 +270,24 @@ Exit code determines behavior:
 
 This makes `hook` usable as both a **custom check** (assert a condition, exit non-zero if it fails) and a **custom
 mutation** (perform an action, exit non-zero on error).
+
+By default, hooks do **not** run when the project is a compressed archive. Set `run_on_archive = true` to allow a
+hook to run after `archive.compress`:
+
+```toml
+[config.hook.post_archive]
+command = "my-notifier --archive $FROSTX_PROJECT_PATH"
+kind = "mutation"
+run_on_archive = true
+```
+
+When `run_on_archive = true` and the project is a compressed archive:
+- The command's working directory is set to the archive's **parent directory** (not the archive file itself, which is not a valid CWD).
+- `$FROSTX_PROJECT_PATH` holds the full path to the archive file.
+- `$FROSTX_ARCHIVE` is set to `1` (it is `0` when running against an uncompressed directory).
+
+When `run_on_archive = false` (the default), the hook follows the same skip/fail logic as other non-compatible
+actions: skipped if it is a check, failed if it is a mutation.
 
 ```toml
 [config.hook.<name>]

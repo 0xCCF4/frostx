@@ -29,6 +29,10 @@ impl Action for Hook {
         }
     }
 
+    fn supports_compressed_archive(&self) -> bool {
+        self.config.run_on_archive
+    }
+
     fn run(&self, ctx: &ActionContext<'_>) -> Result<ActionOutcome, FrostxError> {
         if ctx.dry_run {
             return Ok(ActionOutcome::dry_run(format!(
@@ -37,14 +41,25 @@ impl Action for Hook {
             )));
         }
 
+        // When the project has been compressed to an archive file, run the hook
+        // in the containing directory — a file path is not a valid CWD.
+        let cwd = if ctx.project_path.is_file() {
+            ctx.project_path.parent().unwrap_or(ctx.project_path)
+        } else {
+            ctx.project_path
+        };
         let out = Command::new("sh")
             .arg("-c")
             .arg(&self.config.command)
-            .current_dir(ctx.project_path)
+            .current_dir(cwd)
             .env("FROSTX_PROJECT_ID", ctx.config.id.to_string())
             .env("FROSTX_DRY_RUN", if ctx.dry_run { "1" } else { "0" }) // currently, script is skipped, but might change in the future
             .env("FROSTX_YES", if ctx.yes { "1" } else { "0" })
             .env("FROSTX_PROJECT_PATH", ctx.project_path)
+            .env(
+                "FROSTX_ARCHIVE",
+                if ctx.project_path.is_file() { "1" } else { "0" },
+            )
             .output()?;
 
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -98,6 +113,7 @@ mod tests {
             HookConfig {
                 command: "echo hello".into(),
                 kind: HookKind::Mutation,
+                run_on_archive: false,
             },
         );
         let ctx = ActionContext {
@@ -119,6 +135,7 @@ mod tests {
             HookConfig {
                 command: "exit 1".into(),
                 kind: HookKind::Mutation,
+                run_on_archive: false,
             },
         );
         let ctx = ActionContext {
@@ -140,6 +157,7 @@ mod tests {
             HookConfig {
                 command: "rm -rf /".into(),
                 kind: HookKind::Mutation,
+                run_on_archive: false,
             },
         );
         let ctx = ActionContext {
@@ -159,6 +177,7 @@ mod tests {
             HookConfig {
                 command: "true".into(),
                 kind: HookKind::Check,
+                run_on_archive: false,
             },
         );
         assert_eq!(hook.kind(), ActionKind::Check);
@@ -171,6 +190,7 @@ mod tests {
             HookConfig {
                 command: "make".into(),
                 kind: HookKind::Mutation,
+                run_on_archive: false,
             },
         );
         assert_eq!(hook.kind(), ActionKind::Mutation);

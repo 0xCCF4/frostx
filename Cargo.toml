@@ -31,6 +31,7 @@ clap_mangen  = "0.3"
 dialoguer    = "0.12"
 directories  = "6"
 flate2       = "1"
+ignore       = "0.4"
 #indicatif   = "0.18"
 owo-colors   = { version = "4", features = ["supports-colors"] }
 serde        = { version = "1", features = ["derive"] }

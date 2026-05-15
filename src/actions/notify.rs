@@ -30,6 +30,10 @@ impl Action for Notify {
         ActionKind::Mutation
     }
 
+    fn supports_compressed_archive(&self) -> bool {
+        true
+    }
+
     fn run(&self, ctx: &ActionContext<'_>) -> Result<ActionOutcome, FrostxError> {
         if ctx.dry_run {
             return Ok(ActionOutcome::dry_run(format!(

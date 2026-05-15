@@ -168,6 +168,11 @@ pub struct HookConfig {
     /// Whether the hook behaves as a check or a mutation.
     #[serde(default)]
     pub kind: HookKind,
+    /// Allow this hook to run when the project has been compressed to an
+    /// archive file. When `false` (default), the hook is skipped (check) or
+    /// fails (mutation) if `project_path` is a file rather than a directory.
+    #[serde(default)]
+    pub run_on_archive: bool,
 }
 
 /// Whether a hook action is a check (re-runs every time) or a mutation (recorded as completed).

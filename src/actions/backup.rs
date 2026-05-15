@@ -52,6 +52,9 @@ impl Action for Check {
     fn kind(&self) -> ActionKind {
         ActionKind::Check
     }
+    fn supports_compressed_archive(&self) -> bool {
+        true
+    }
 
     fn run(&self, ctx: &ActionContext<'_>) -> Result<ActionOutcome, FrostxError> {
         let backend = backup::from_url(&self.server)?;
@@ -86,6 +89,9 @@ impl Action for Upload {
     }
     fn kind(&self) -> ActionKind {
         ActionKind::Mutation
+    }
+    fn supports_compressed_archive(&self) -> bool {
+        true
     }
 
     fn run(&self, ctx: &ActionContext<'_>) -> Result<ActionOutcome, FrostxError> {
@@ -131,6 +137,9 @@ impl Action for Verify {
     }
     fn kind(&self) -> ActionKind {
         ActionKind::Check
+    }
+    fn supports_compressed_archive(&self) -> bool {
+        true
     }
 
     fn run(&self, ctx: &ActionContext<'_>) -> Result<ActionOutcome, FrostxError> {

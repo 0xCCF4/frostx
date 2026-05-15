@@ -126,10 +126,7 @@ mod tests {
     /// Create a gzip tar archive using the same `append_dir_all` approach as
     /// production code.  `files` is a list of `(relative_path, content)` pairs
     /// written under a `project/` top-level directory.
-    fn write_gz_archive(
-        dir: &std::path::Path,
-        files: &[(&str, &[u8])],
-    ) -> std::path::PathBuf {
+    fn write_gz_archive(dir: &std::path::Path, files: &[(&str, &[u8])]) -> std::path::PathBuf {
         let src = tempdir().unwrap();
         for (rel, data) in files {
             let dest = src.path().join(rel);
@@ -169,8 +166,7 @@ mod tests {
     #[test]
     fn collect_toml_entries_gz() {
         let tmp = tempdir().unwrap();
-        let archive =
-            write_gz_archive(tmp.path(), &[("frostx.toml", b"id = \"abc\"")]);
+        let archive = write_gz_archive(tmp.path(), &[("frostx.toml", b"id = \"abc\"")]);
         let map = read_toml_entries(&archive).unwrap();
         assert!(map.contains_key("frostx.toml"), "map = {map:?}");
         assert!(map["frostx.toml"].contains("abc"));
