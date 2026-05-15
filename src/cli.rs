@@ -150,7 +150,16 @@ pub enum ProjectsCmd {
     },
 
     /// Run `check` on every tracked project.
-    Check,
+    Check {
+        /// Skip if not running in an interactive terminal or already ran in the last 24 hours.
+        ///
+        /// Designed for shell startup integration (e.g. `.bashrc`): the command
+        /// exits silently when the daily threshold has not elapsed or when stdout
+        /// is not a TTY.  On the first run each day it proceeds normally and
+        /// records the timestamp in the state directory.
+        #[arg(long)]
+        daily: bool,
+    },
 
     /// Run the inactivity pipeline for every tracked project.
     Run {
@@ -165,5 +174,14 @@ pub enum ProjectsCmd {
         /// Run a single named action, skipping threshold checks.
         #[arg(long, value_name = "NAME")]
         action: Option<String>,
+
+        /// Skip if not running in an interactive terminal or already ran in the last 24 hours.
+        ///
+        /// Designed for shell startup integration (e.g. `.bashrc`): the command
+        /// exits silently when the daily threshold has not elapsed or when stdout
+        /// is not a TTY.  On the first run each day it proceeds normally and
+        /// records the timestamp in the state directory.
+        #[arg(long)]
+        daily: bool,
     },
 }

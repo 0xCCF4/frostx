@@ -1,6 +1,6 @@
 use super::{
-    CheckOutput, DoctorOutput, GcOutput, InitOutput, ProjectAddOutput, ProjectRmOutput,
-    ProjectsListOutput, RunActionOutput, FROSTX_VERSION,
+    CheckOutput, DailyCheckOutput, DailyRunOutput, DoctorOutput, GcOutput, InitOutput,
+    ProjectAddOutput, ProjectRmOutput, ProjectsListOutput, RunActionOutput, FROSTX_VERSION,
 };
 use serde_json::json;
 
@@ -75,6 +75,22 @@ pub fn print_projects_list(out: &ProjectsListOutput) {
 
 /// Emit the JSON result of `frostx projects add` to stdout.
 pub fn print_projects_add(out: &ProjectAddOutput) {
+    println!(
+        "{}",
+        serde_json::to_string(out).unwrap_or_else(|e| json!({"error": e.to_string()}).to_string())
+    );
+}
+
+/// Emit the `--daily --json` envelope for `projects check`.
+pub fn print_daily_check(out: &DailyCheckOutput<'_>) {
+    println!(
+        "{}",
+        serde_json::to_string(out).unwrap_or_else(|e| json!({"error": e.to_string()}).to_string())
+    );
+}
+
+/// Emit the `--daily --json` envelope for `projects run`.
+pub fn print_daily_run(out: &DailyRunOutput<'_>) {
     println!(
         "{}",
         serde_json::to_string(out).unwrap_or_else(|e| json!({"error": e.to_string()}).to_string())

@@ -19,7 +19,7 @@ fn run_cmd(args: &[&str], dir: &std::path::Path) -> std::process::Output {
         .expect("failed to run frostx")
 }
 
-/// Write a `frostx.toml` with a named rule (not yet triggered — no old files needed).
+/// Write a `frostx.toml` with a named rule (not yet triggered - no old files needed).
 fn write_named_rule_config(dir: &std::path::Path) {
     let config = r#"id = "b2c3d4e5-0000-0000-0000-000000000099"
 

@@ -127,7 +127,7 @@ publicly). `main.rs` only parses args, calls `ops::*`, renders output, and exits
 
 ### Key design decisions
 
-- **Rule chain**: rules execute sequentially in declaration order. Within a rule, actions form a chain — if action N
+- **Rule chain**: rules execute sequentially in declaration order. Within a rule, actions form a chain - if action N
   fails, actions N+1...end are skipped and the rule is marked failed. A failed rule stops evaluation: no subsequent
   rules run in that invocation. On the next run, already-completed mutation actions are skipped but the failed rule (and
   any after it) are retried from the top of their action list.
@@ -143,7 +143,7 @@ publicly). `main.rs` only parses args, calls `ops::*`, renders output, and exits
   aborts with exit code `4`. Resolution: `frostx init --force` in the copy.
 - **Output**: all commands produce human-readable output by default. Pass `--json` globally for machine-readable output.
   `frostx run` uses NDJSON to stream action results in real time. Output format is the CLI's concern; `ops::*` functions
-  return data structures and accept callbacks — they do not render anything directly.
+  return data structures and accept callbacks - they do not render anything directly.
 
 ## CLI Interface
 

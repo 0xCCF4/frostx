@@ -2,9 +2,6 @@
 
 List of features, I would like to add, in no particular order. Not a roadmap, just a brain dump of ideas.
 
-- [ ] Either create a documentation how to setup or custom command for this, once a day, if any project needs to be run,
-  run the pipeline in a terminal init, if no rule is eligible, sleep for 24h and check again. This way users might just
-  add frostx to their bashrc and forget about it. State that the tool run on that day may be saved to the state dir.
 - [ ] On tar gz/archive action, archive the whole folder an replace the project folder with that archive, instead of
   creating a new archive besides the project folder.
 - [ ] When implemented above, frostx should modify the state path to point to the archive, and it should still be able
@@ -35,3 +32,5 @@ List of features, I would like to add, in no particular order. Not a roadmap, ju
 - [ ] Fix all `cargo clippy --all-targets -- -D warnings -W clippy::pedantic`
 - [ ] if the same file is included twice, then skip it the second+ time
 - [ ] update last scan, when project was successfully loaded
+- [ ] beautiful init questionaire, like with npm init, nice ascii art, etc.
+- [ ] compact --help for all subcommands

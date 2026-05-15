@@ -98,7 +98,7 @@ pub fn unknown_action_hint(name: &str) -> String {
         format!("unknown action '{name}'")
     } else {
         format!(
-            "unknown action '{name}' — did you mean: {}?",
+            "unknown action '{name}' - did you mean: {}?",
             suggestions.join(", ")
         )
     }

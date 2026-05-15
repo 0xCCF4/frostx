@@ -1,5 +1,7 @@
 //! Configuration loading, validation, and state management.
 
+/// Once-per-day automation state stored in `$XDG_DATA_HOME/frostx/daily.toml`.
+pub mod daily;
 /// Duration parsing and elapsed-time arithmetic.
 pub mod duration;
 /// `include` directive resolution - merges library/relative/absolute configs.

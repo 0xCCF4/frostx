@@ -64,7 +64,7 @@ pub struct ActionConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VcsConfig {
     /// When `true`, `vcs.*` actions skip silently if no supported VCS is detected.
-    /// Default: `false` — fail when no VCS repository is found.
+    /// Default: `false` - fail when no VCS repository is found.
     #[serde(default)]
     pub skip_if_no_vcs: bool,
 }

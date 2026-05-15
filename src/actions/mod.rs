@@ -119,7 +119,7 @@ pub trait Action: Send + Sync {
 ///
 /// Looks up static actions in the per-module registries first, then handles
 /// dynamic categories (`hook.<name>`, `notify.<name>`). Adding a new static
-/// action only requires a new entry in the module's `REGISTRY` — no changes
+/// action only requires a new entry in the module's `REGISTRY` - no changes
 /// here.
 ///
 /// # Errors

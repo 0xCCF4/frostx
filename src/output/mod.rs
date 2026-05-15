@@ -57,6 +57,40 @@ pub struct ActionCheckOutput {
     pub message: String,
 }
 
+/// Indicates how the data in a `--daily --json` envelope was produced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DailySource {
+    /// Data was produced by the current invocation.
+    Fresh,
+    /// Data was retrieved from the 24-hour cache.
+    Cached,
+    /// `--daily` suppressed the run (non-TTY or threshold not met).
+    NotRun,
+}
+
+/// Envelope for `frostx projects check --daily --json`.
+///
+/// Always emitted when `--daily --json` is used, regardless of whether the
+/// data is fresh, cached, or suppressed, so callers can reliably parse it.
+#[derive(Serialize)]
+pub struct DailyCheckOutput<'a> {
+    pub frostx_version: &'static str,
+    pub daily_source: DailySource,
+    pub results: &'a [CheckOutput],
+}
+
+/// Envelope for `frostx projects run --daily --json`.
+///
+/// Always emitted when `--daily --json` is used. Actions are buffered (not
+/// streamed) so they can be included in the envelope and cached for replay.
+#[derive(Serialize)]
+pub struct DailyRunOutput<'a> {
+    pub frostx_version: &'static str,
+    pub daily_source: DailySource,
+    pub actions: &'a [RunActionOutput],
+}
+
 /// Data for `frostx run` (streamed per action as NDJSON).
 #[derive(Serialize)]
 pub struct RunActionOutput {

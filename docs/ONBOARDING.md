@@ -88,7 +88,7 @@ Actions have a `kind()`:
 ### Rule evaluation
 
 Rules execute sequentially in declaration order. Within a rule, actions are a chain: if action N fails, actions N+1...
-are skipped and the rule fails. A failed rule stops the pipeline — no subsequent rules run in that invocation. On the
+are skipped and the rule fails. A failed rule stops the pipeline - no subsequent rules run in that invocation. On the
 next run the pipeline retries from the first eligible rule, skipping already-completed mutation actions within it.
 
 ## The Action trait - adding new actions
@@ -185,14 +185,14 @@ The pipeline engine (`src/pipeline/mod.rs`) calls these; individual actions neve
 ## Operations and output
 
 Each subcommand has a module in `src/ops/`. Operation functions accept `FrostxOpts` (holds `dry_run`, `state_dir`, etc.)
-and return `Result<T, FrostxError>` — never exit codes. Rendering is the caller's concern.
+and return `Result<T, FrostxError>` - never exit codes. Rendering is the caller's concern.
 
 Output structs live in `src/output/mod.rs`. Add a new struct there when a new command needs structured output, then add
 `print_*` functions to both `output/human.rs` and `output/json.rs`.
 
 `main.rs` constructs output format from the `--json` flag, calls the appropriate `ops::*` function, renders the result,
 and exits with the mapped code. The `OutputFormat` value is captured into closures (e.g. the `on_action` callback for
-`run`) — it is not part of `FrostxOpts`.
+`run`) - it is not part of `FrostxOpts`.
 
 ## Writing tests
 

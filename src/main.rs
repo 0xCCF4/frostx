@@ -10,7 +10,10 @@ use frostx::ops::{
     scan::ScanArgs,
     FrostxOpts,
 };
-use frostx::output::{human, json, OutputFormat, RunActionOutput, FROSTX_VERSION};
+use frostx::output::{
+    human, json, DailyCheckOutput, DailyRunOutput, DailySource, OutputFormat, RunActionOutput,
+    FROSTX_VERSION,
+};
 use frostx::prompt;
 use std::path::PathBuf;
 use std::process;
@@ -227,6 +230,9 @@ fn main() {
                     };
                     let out = ops::projects::add(&args, &opts);
                     let had_skips = !out.skipped.is_empty();
+                    if !out.added.is_empty() {
+                        daily_reset(&opts);
+                    }
                     match format {
                         OutputFormat::Human => human::print_projects_add(&out),
                         OutputFormat::Json => json::print_projects_add(&out),
@@ -241,6 +247,7 @@ fn main() {
 
             ProjectsCmd::Rm { path } => match ops::projects::rm(&path, &opts) {
                 Ok(out) => {
+                    daily_reset(&opts);
                     match format {
                         OutputFormat::Human => human::print_projects_rm(&out),
                         OutputFormat::Json => json::print_projects_rm(&out),
@@ -250,8 +257,40 @@ fn main() {
                 Err(e) => emit_error(&e, format),
             },
 
-            ProjectsCmd::Check => {
+            ProjectsCmd::Check { daily } => {
+                if daily {
+                    let daily_state = daily_load(&opts);
+                    if !is_interactive_terminal() || daily_state.checked_today() {
+                        if format == OutputFormat::Json {
+                            if let Some(cached) = &daily_state.check_output_json {
+                                // Cache stores the full envelope JSON — print verbatim.
+                                println!("{cached}");
+                            } else {
+                                json::print_daily_check(&DailyCheckOutput {
+                                    frostx_version: FROSTX_VERSION,
+                                    daily_source: DailySource::NotRun,
+                                    results: &[],
+                                });
+                            }
+                        }
+                        process::exit(exit_code::OK);
+                    }
+                }
                 let (results, errors) = ops::projects::check_all(&opts);
+                if daily {
+                    if format == OutputFormat::Json {
+                        // Store the envelope (with "cached" source) so replay is verbatim.
+                        let cache = serde_json::to_string(&DailyCheckOutput {
+                            frostx_version: FROSTX_VERSION,
+                            daily_source: DailySource::Cached,
+                            results: &results,
+                        })
+                        .ok();
+                        daily_record_check(&opts, cache);
+                    } else {
+                        daily_record_check(&opts, None);
+                    }
+                }
                 let mut worst = exit_code::OK;
                 match format {
                     OutputFormat::Human => {
@@ -266,7 +305,15 @@ fn main() {
                         }
                     }
                     OutputFormat::Json => {
-                        json::print_scan(&results);
+                        if daily {
+                            json::print_daily_check(&DailyCheckOutput {
+                                frostx_version: FROSTX_VERSION,
+                                daily_source: DailySource::Fresh,
+                                results: &results,
+                            });
+                        } else {
+                            json::print_scan(&results);
+                        }
                         for (_, e) in &errors {
                             if worst == exit_code::OK {
                                 worst = e.exit_code();
@@ -281,12 +328,34 @@ fn main() {
                 force,
                 rule,
                 action,
+                daily,
             } => {
+                if daily {
+                    let daily_state = daily_load(&opts);
+                    if !is_interactive_terminal() || daily_state.ran_today() {
+                        if format == OutputFormat::Json {
+                            if let Some(cached) = &daily_state.run_output_json {
+                                // Cache stores the full envelope JSON — print verbatim.
+                                println!("{cached}");
+                            } else {
+                                json::print_daily_run(&DailyRunOutput {
+                                    frostx_version: FROSTX_VERSION,
+                                    daily_source: DailySource::NotRun,
+                                    actions: &[],
+                                });
+                            }
+                        }
+                        process::exit(exit_code::OK);
+                    }
+                }
                 let run_args = ProjectsRunArgs {
                     force,
                     rule_filter: rule,
                     action_filter: action,
                 };
+                // When --daily --json: buffer actions for the envelope instead of streaming.
+                let collected: std::cell::RefCell<Vec<RunActionOutput>> =
+                    std::cell::RefCell::new(Vec::new());
                 let (had_failures, errors) = ops::projects::run_all(
                     &run_args,
                     &opts,
@@ -300,12 +369,36 @@ fn main() {
                             status: ao.status.as_str().to_string(),
                             message: ao.message.clone(),
                         };
-                        match format {
-                            OutputFormat::Human => human::print_run_action(&out),
-                            OutputFormat::Json => json::print_run_action(&out),
+                        if daily && format == OutputFormat::Json {
+                            collected.borrow_mut().push(out);
+                        } else {
+                            match format {
+                                OutputFormat::Human => human::print_run_action(&out),
+                                OutputFormat::Json => json::print_run_action(&out),
+                            }
                         }
                     },
                 );
+                let actions = collected.into_inner();
+                if daily {
+                    if format == OutputFormat::Json {
+                        // Emit fresh envelope, then store cached envelope for replay.
+                        json::print_daily_run(&DailyRunOutput {
+                            frostx_version: FROSTX_VERSION,
+                            daily_source: DailySource::Fresh,
+                            actions: &actions,
+                        });
+                        let cache = serde_json::to_string(&DailyRunOutput {
+                            frostx_version: FROSTX_VERSION,
+                            daily_source: DailySource::Cached,
+                            actions: &actions,
+                        })
+                        .ok();
+                        daily_record_run(&opts, cache);
+                    } else {
+                        daily_record_run(&opts, None);
+                    }
+                }
                 let mut worst = if had_failures {
                     exit_code::ERROR
                 } else {
@@ -342,4 +435,36 @@ fn emit_error_msg(msg: &str, code: i32, format: OutputFormat) {
         OutputFormat::Human => human::print_error(msg),
         OutputFormat::Json => json::print_error(msg, code),
     }
+}
+
+/// Returns `true` when stdout is an interactive terminal.
+fn is_interactive_terminal() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdout().is_terminal()
+}
+
+/// Load the daily state from the state directory, returning a fresh default on error.
+fn daily_load(opts: &FrostxOpts) -> frostx::config::daily::DailyState {
+    frostx::config::daily::DailyState::load(&opts.state_dir).unwrap_or_default()
+}
+
+/// Persist the run timestamp and optional NDJSON cache for `projects run --daily`.
+fn daily_record_run(opts: &FrostxOpts, ndjson: Option<String>) {
+    let mut state = daily_load(opts);
+    state.record_run(ndjson);
+    let _ = state.save(&opts.state_dir);
+}
+
+/// Persist the check timestamp and optional JSON cache for `projects check --daily`.
+fn daily_record_check(opts: &FrostxOpts, json: Option<String>) {
+    let mut state = daily_load(opts);
+    state.record_check(json);
+    let _ = state.save(&opts.state_dir);
+}
+
+/// Erase the daily cache so the next `--daily` invocation runs fresh.
+///
+/// Called whenever the tracked-project list changes (`projects add` / `projects rm`).
+fn daily_reset(opts: &FrostxOpts) {
+    let _ = frostx::config::daily::DailyState::default().save(&opts.state_dir);
 }
