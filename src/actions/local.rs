@@ -25,6 +25,16 @@ impl Action for Delete {
             )));
         }
 
+        if super::cwd_is_inside(path) {
+            return Err(FrostxError::ActionFailed {
+                action: self.name().to_owned(),
+                message: format!(
+                    "current working directory is inside {}; cd to a different location and retry",
+                    path.display()
+                ),
+            });
+        }
+
         let size: u64 = walkdir::WalkDir::new(path)
             .into_iter()
             .filter_map(std::result::Result::ok)

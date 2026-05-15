@@ -9,8 +9,9 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 
 /// Static registration of all archive actions.
-pub const REGISTRY: &[(&str, ActionFactory)] =
-    &[("archive.compress", |config| Ok(Box::new(TarGz::new(config))))];
+pub const REGISTRY: &[(&str, ActionFactory)] = &[("archive.compress", |config| {
+    Ok(Box::new(TarGz::new(config)))
+})];
 
 /// Create a compressed archive of the project directory, replacing it.
 ///
@@ -59,40 +60,79 @@ impl Action for TarGz {
     }
 
     fn run(&self, ctx: &ActionContext<'_>) -> Result<ActionOutcome, FrostxError> {
-        let archive_path = self.archive_path(ctx.project_path, &ctx.config.id);
+        // Canonicalize so relative paths like "." resolve to an absolute form;
+        // this ensures the archive lands next to the project dir, not inside it.
+        let project_path = ctx.project_path.canonicalize().map_err(FrostxError::Io)?;
+        let archive_path = self.archive_path(&project_path, &ctx.config.id);
 
         if ctx.dry_run {
             return Ok(ActionOutcome::dry_run(format!(
                 "would archive {} → {}",
-                ctx.project_path.display(),
+                project_path.display(),
                 archive_path.display()
             )));
         }
 
-        // Create archive
-        create_archive(ctx.project_path, &archive_path, &self.compression)?;
-
-        // Verify archive
-        if let Err(e) = verify_archive(ctx.project_path, &archive_path, &self.compression) {
-            // Archive is suspect — remove it so nothing broken is left behind.
-            let _ = std::fs::remove_file(&archive_path);
-            return Err(e);
+        if super::cwd_is_inside(&project_path) {
+            return Err(FrostxError::ActionFailed {
+                action: self.name().to_owned(),
+                message: format!(
+                    "current working directory is inside {}; cd to a different location and retry",
+                    project_path.display()
+                ),
+            });
         }
 
+        let parent = archive_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+
+        // Build in a temp dir on the same filesystem so the final rename is atomic.
+        let tmp_dir = tempfile::Builder::new()
+            .prefix(".frostx-tmp-")
+            .tempdir_in(parent)
+            .map_err(FrostxError::Io)?;
+        let tmp_path = tmp_dir.path().join(
+            archive_path
+                .file_name()
+                .unwrap_or_else(|| std::ffi::OsStr::new("archive")),
+        );
+
+        // Create archive in the temp dir.
+        create_archive(&project_path, &tmp_path, &self.compression)?;
+
+        // Verify before touching the final location.
+        verify_archive(&project_path, &tmp_path, &self.compression)?;
+
+        // Promote: rename (atomic on same fs) or copy+delete across fs boundaries.
+        promote(&tmp_path, &archive_path).map_err(FrostxError::Io)?;
+
         // Only then delete the original files
-        std::fs::remove_dir_all(ctx.project_path)?;
+        std::fs::remove_dir_all(&project_path)?;
 
         let meta = std::fs::metadata(&archive_path)?;
         Ok(ActionOutcome {
             status: crate::pipeline::ActionStatus::Ok,
             message: format!(
                 "archived {} → {} ({})",
-                ctx.project_path.display(),
+                project_path.display(),
                 archive_path.display(),
                 human_size(meta.len())
             ),
             new_project_path: Some(archive_path),
         })
+    }
+}
+
+/// Move `src` to `dest`, falling back to copy + delete when they are on different filesystems.
+fn promote(src: &Path, dest: &Path) -> std::io::Result<()> {
+    match std::fs::rename(src, dest) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+            std::fs::copy(src, dest)?;
+            std::fs::remove_file(src)
+        }
+        Err(e) => Err(e),
     }
 }
 
@@ -232,8 +272,8 @@ fn verify_entries<R: std::io::Read>(
                 return Err(FrostxError::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     format!(
-                        "symlink target mismatch for {}: archive='{}' source='{}'",
-                        rel.display(),
+                        "symlink target mismatch for entry '{}': archive='{}' source='{}'",
+                        path.display(),
                         archived_target.display(),
                         src_target.display()
                     ),
@@ -245,8 +285,8 @@ fn verify_entries<R: std::io::Read>(
                 FrostxError::Io(std::io::Error::new(
                     e.kind(),
                     format!(
-                        "source file not accessible during verification {}: {e}",
-                        rel.display()
+                        "source file not accessible during verification of entry '{}': {e}",
+                        path.display()
                     ),
                 ))
             })?;
@@ -254,7 +294,11 @@ fn verify_entries<R: std::io::Read>(
             if !streams_equal(&mut src_reader, &mut entry).map_err(FrostxError::Io)? {
                 return Err(FrostxError::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    format!("content mismatch for {}", rel.display()),
+                    format!(
+                        "content mismatch: archive entry '{}' differs from source file '{}'",
+                        path.display(),
+                        src_path.display()
+                    ),
                 )));
             }
             seen.insert(rel);

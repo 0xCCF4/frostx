@@ -164,6 +164,21 @@ pub fn create(name: &str, config: &ProjectConfig) -> Result<Box<dyn Action>, Fro
     ))
 }
 
+/// Returns `true` if the process's current working directory equals `project_path`
+/// or is a subdirectory of it.
+///
+/// Removing a directory that is an ancestor of the shell's CWD leaves the
+/// invoking shell with a broken working directory after the process exits.
+/// Actions that call `remove_dir_all` should call this guard before proceeding.
+pub fn cwd_is_inside(project_path: &Path) -> bool {
+    let Ok(cwd) = std::env::current_dir() else {
+        return false;
+    };
+    project_path
+        .canonicalize()
+        .is_ok_and(|p| cwd.starts_with(&p))
+}
+
 /// Every statically registered action name, sorted alphabetically.
 ///
 /// Dynamic action categories (`hook.<name>`, `notify.<name>`, `group.<name>`)
@@ -180,4 +195,23 @@ pub fn all_static_actions() -> &'static [&'static str] {
         names.sort_unstable();
         names
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cwd_is_inside_current_dir() {
+        let cwd = std::env::current_dir().expect("current_dir must be readable in tests");
+        assert!(
+            cwd_is_inside(&cwd),
+            "cwd should be detected as inside itself"
+        );
+    }
+
+    #[test]
+    fn cwd_is_inside_nonexistent_returns_false() {
+        assert!(!cwd_is_inside(Path::new("/nonexistent/frostx/xyz/abc")));
+    }
 }

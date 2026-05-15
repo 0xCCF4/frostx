@@ -2,10 +2,7 @@
 
 List of features, I would like to add, in no particular order. Not a roadmap, just a brain dump of ideas.
 
-- [ ] On tar gz/archive action, archive the whole folder an replace the project folder with that archive, instead of
-  creating a new archive besides the project folder.
-- [ ] When implemented above, frostx should modify the state path to point to the archive, and it should still be able
-  to run further pipelines, hence, some tar streaming implementation may be used.
+- [ ] Frostx should still be able when the project points to an archive (e.g. created by archive.compress) to run further pipelines, hence, it must inspect the archive, open the frostx.toml inside
 - [ ] For verification that the project is put to the remote folder, we must always check the integrity of the upload,
   if the backend does not support that natively, we need to download the uploaded file and compare checksums, or
   something like that. Might mark then the completion to only do this once. For the ssh upload, not rsync, this should
