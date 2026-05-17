@@ -35,5 +35,5 @@ jobs:
 
       - uses: actions/attest-build-provenance@v4
         with:
-          subject-path: ${{ github.workspace }}/target/release/photo_sort
+          subject-path: ${{ github.workspace }}/target/release/frostx
         continue-on-error: true
