@@ -388,3 +388,212 @@ fn run_action_filter_runs_single_action() {
         "--action filter should run the named action once"
     );
 }
+
+#[test]
+fn once_rule_runs_only_once() {
+    let tmp = tempdir().unwrap();
+    // Counter outside the project dir so writing it does not reset the inactivity clock.
+    let counter_dir = tempdir().unwrap();
+    let counter = counter_dir.path().join("count.txt");
+    make_old_file(tmp.path());
+
+    let config = format!(
+        r#"id = "a1b2c3d4-0000-0000-0000-000000000020"
+
+[config.hook.bump]
+command = "echo x >> {counter}"
+kind = "mutation"
+
+[[rule]]
+after = "1h"
+once = true
+actions = ["hook.bump"]
+"#,
+        counter = counter.display()
+    );
+    fs::write(tmp.path().join("frostx.toml"), &config).unwrap();
+
+    let state_dir = tempdir().unwrap();
+    let args = [
+        "--yes",
+        "--state-dir",
+        state_dir.path().to_str().unwrap(),
+        "run",
+        ".",
+    ];
+
+    run_cmd(&args, tmp.path());
+    run_cmd(&args, tmp.path());
+
+    let content = fs::read_to_string(&counter).unwrap_or_default();
+    assert_eq!(
+        content.lines().count(),
+        1,
+        "once = true rule must run exactly once"
+    );
+}
+
+#[test]
+fn once_rule_force_reruns() {
+    let tmp = tempdir().unwrap();
+    let counter_dir = tempdir().unwrap();
+    let counter = counter_dir.path().join("count.txt");
+    make_old_file(tmp.path());
+
+    let config = format!(
+        r#"id = "a1b2c3d4-0000-0000-0000-000000000021"
+
+[config.hook.bump]
+command = "echo x >> {counter}"
+kind = "mutation"
+
+[[rule]]
+after = "1h"
+once = true
+actions = ["hook.bump"]
+"#,
+        counter = counter.display()
+    );
+    fs::write(tmp.path().join("frostx.toml"), &config).unwrap();
+
+    let state_dir = tempdir().unwrap();
+
+    run_cmd(
+        &[
+            "--yes",
+            "--state-dir",
+            state_dir.path().to_str().unwrap(),
+            "run",
+            ".",
+        ],
+        tmp.path(),
+    );
+    run_cmd(
+        &[
+            "--yes",
+            "--state-dir",
+            state_dir.path().to_str().unwrap(),
+            "run",
+            "--force",
+            ".",
+        ],
+        tmp.path(),
+    );
+
+    let content = fs::read_to_string(&counter).unwrap_or_default();
+    assert_eq!(
+        content.lines().count(),
+        2,
+        "--force must re-run a completed once = true rule"
+    );
+}
+
+#[test]
+fn once_rule_not_sealed_on_partial_failure() {
+    let tmp = tempdir().unwrap();
+    let counter_dir = tempdir().unwrap();
+    let counter = counter_dir.path().join("count.txt");
+    make_old_file(tmp.path());
+
+    // check fails on first run (gate absent), so the whole rule fails and must
+    // NOT be sealed. On the second run (gate present) it succeeds and is sealed.
+    let gate = counter_dir.path().join("gate");
+    let config = format!(
+        r#"id = "a1b2c3d4-0000-0000-0000-000000000022"
+
+[config.hook.gate_check]
+command = "test -f {gate}"
+kind = "check"
+
+[config.hook.bump]
+command = "echo x >> {counter}"
+kind = "mutation"
+
+[[rule]]
+after = "1h"
+once = true
+actions = ["hook.gate_check", "hook.bump"]
+"#,
+        gate = gate.display(),
+        counter = counter.display()
+    );
+    fs::write(tmp.path().join("frostx.toml"), &config).unwrap();
+
+    let state_dir = tempdir().unwrap();
+    let args = [
+        "--yes",
+        "--state-dir",
+        state_dir.path().to_str().unwrap(),
+        "run",
+        ".",
+    ];
+
+    // First run: gate absent — rule fails, not sealed.
+    run_cmd(&args, tmp.path());
+    // Second run: gate present — rule succeeds and is sealed.
+    fs::write(&gate, "").unwrap();
+    run_cmd(&args, tmp.path());
+    // Third run: rule is now sealed — must not run again.
+    run_cmd(&args, tmp.path());
+
+    let content = fs::read_to_string(&counter).unwrap_or_default();
+    assert_eq!(
+        content.lines().count(),
+        1,
+        "bump must run exactly once: after the gate passes and before the rule is sealed"
+    );
+}
+
+#[test]
+fn once_rule_check_shows_completed_once() {
+    let tmp = tempdir().unwrap();
+    make_old_file(tmp.path());
+
+    let config = r#"id = "a1b2c3d4-0000-0000-0000-000000000023"
+
+[config.hook.noop]
+command = "true"
+kind = "mutation"
+
+[[rule]]
+after = "1h"
+once = true
+actions = ["hook.noop"]
+"#;
+    fs::write(tmp.path().join("frostx.toml"), config).unwrap();
+
+    let state_dir = tempdir().unwrap();
+
+    // Run once to seal the rule.
+    run_cmd(
+        &[
+            "--yes",
+            "--state-dir",
+            state_dir.path().to_str().unwrap(),
+            "run",
+            ".",
+        ],
+        tmp.path(),
+    );
+
+    // Check output should report completed_once = true.
+    let out = run_cmd(
+        &[
+            "--json",
+            "--state-dir",
+            state_dir.path().to_str().unwrap(),
+            "check",
+            ".",
+        ],
+        tmp.path(),
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("invalid JSON: {e}\noutput: {stdout}"));
+
+    assert_eq!(
+        v["rules"][0]["completed_once"],
+        serde_json::Value::Bool(true),
+        "check must report completed_once = true after once = true rule ran"
+    );
+}

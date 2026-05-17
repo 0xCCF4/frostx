@@ -41,6 +41,9 @@ pub struct RuleOutcome {
     pub triggered: bool,
     pub remaining_seconds: i64,
     pub action_outcomes: Vec<ActionOutcome>,
+    /// `true` when this is a `once = true` rule that already completed in a
+    /// previous run. The rule will not trigger again unless `--force` is used.
+    pub completed_once: bool,
 }
 
 /// Options controlling pipeline execution.
@@ -78,7 +81,19 @@ pub fn evaluate(
         let after_seconds = after_seconds.max(0);
 
         let rule_hash = rule.rule_hash();
-        let action_outcomes = if triggered {
+        let completed_once = rule.once && state.is_rule_done(&rule_hash);
+
+        let action_outcomes = if completed_once {
+            // Rule ran once and sealed — show every action as already completed.
+            actions
+                .iter()
+                .map(|name| ActionOutcome {
+                    name: name.clone(),
+                    status: ActionStatus::Completed,
+                    message: "rule completed (once)".into(),
+                })
+                .collect()
+        } else if triggered {
             actions
                 .iter()
                 .map(|name| {
@@ -107,9 +122,12 @@ pub fn evaluate(
             name: rule.name.clone(),
             after: rule.after.clone(),
             after_seconds,
-            triggered,
+            // A completed-once rule is shown as not-triggered so the pipeline
+            // knows it needs no further action.
+            triggered: triggered && !completed_once,
             remaining_seconds: remaining,
             action_outcomes,
+            completed_once,
         });
     }
 
@@ -295,6 +313,7 @@ pub fn run(
                 triggered: false,
                 remaining_seconds: remaining,
                 action_outcomes: vec![],
+                completed_once: false,
             });
             continue;
         }
@@ -309,10 +328,27 @@ pub fn run(
                 triggered: true,
                 remaining_seconds: 0,
                 action_outcomes,
+                completed_once: false,
             });
             continue;
         }
         let rule_hash = rule.rule_hash();
+
+        // Skip a once-rule that already completed (unless --force overrides).
+        if rule.once && !opts.force && state.is_rule_done(&rule_hash) {
+            outcomes.push(RuleOutcome {
+                index,
+                name: rule.name.clone(),
+                after: rule.after.clone(),
+                after_seconds: 0,
+                triggered: false,
+                remaining_seconds: 0,
+                action_outcomes: vec![],
+                completed_once: true,
+            });
+            continue;
+        }
+
         let (action_outcomes, chain_failed) = run_rule_actions(
             actions,
             index,
@@ -327,6 +363,12 @@ pub fn run(
             opts.action_filter.as_deref(),
             on_action,
         )?;
+
+        // Seal a once-rule after a fully successful run.
+        if rule.once && !chain_failed && !opts.dry_run {
+            state.mark_rule_done(&rule_hash);
+        }
+
         if chain_failed {
             pipeline_failed = true;
         }
@@ -338,6 +380,7 @@ pub fn run(
             triggered: true,
             remaining_seconds: 0,
             action_outcomes,
+            completed_once: false,
         });
     }
 
@@ -371,6 +414,7 @@ mod tests {
             name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["git.check_clean".into()],
+            once: false,
         }]);
         let state = ProjectState::default();
         let recent = Utc::now() - chrono::Duration::days(10);
@@ -384,6 +428,7 @@ mod tests {
             name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["git.check_clean".into()],
+            once: false,
         }]);
         let state = ProjectState::default();
         let old = Utc::now() - chrono::Duration::days(100);
@@ -430,11 +475,13 @@ mod tests {
                     name: None,
                     after: Duration::parse("1h").unwrap(),
                     actions: vec!["hook.fail_check".into()],
+                    once: false,
                 },
                 Rule {
                     name: None,
                     after: Duration::parse("1h").unwrap(),
                     actions: vec!["hook.should_not_run".into()],
+                    once: false,
                 },
             ],
         };
@@ -463,6 +510,7 @@ mod tests {
             name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["archive.compress".into()],
+            once: false,
         };
         let rule_hash = rule.rule_hash();
         let cfg = make_config(vec![rule]);

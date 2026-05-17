@@ -47,6 +47,7 @@ pub fn gather(path: &Path, opts: &FrostxOpts) -> Result<CheckOutput, FrostxError
         &outcomes,
     );
 
+    state.last_scan = Some(chrono::Utc::now());
     state.save(&opts.state_dir, config.id)?;
 
     Ok(out)

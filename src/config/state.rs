@@ -33,6 +33,10 @@ pub struct RuleState {
     #[serde(default)]
     pub completed: Vec<String>,
     pub last_run: Option<DateTime<Utc>>,
+    /// Set to `true` after all actions in a `once = true` rule succeed.
+    /// The rule is then skipped on all subsequent runs unless `--force` is used.
+    #[serde(default)]
+    pub rule_done: bool,
 }
 
 impl ProjectState {
@@ -89,6 +93,7 @@ impl ProjectState {
                 hash: rule_hash.to_string(),
                 completed: vec![],
                 last_run: None,
+                rule_done: false,
             });
             &mut self.rules[pos]
         }
@@ -113,6 +118,19 @@ impl ProjectState {
         if !rule.completed.iter().any(|a| a == action_name) {
             rule.completed.push(action_name.to_string());
         }
+        rule.last_run = Some(Utc::now());
+    }
+
+    /// Return `true` if the `once = true` rule identified by `rule_hash` has fully completed.
+    #[must_use]
+    pub fn is_rule_done(&self, rule_hash: &str) -> bool {
+        self.rule(rule_hash).is_some_and(|r| r.rule_done)
+    }
+
+    /// Seal the `once = true` rule identified by `rule_hash` as permanently done.
+    pub fn mark_rule_done(&mut self, rule_hash: &str) {
+        let rule = self.rule_mut(rule_hash);
+        rule.rule_done = true;
         rule.last_run = Some(Utc::now());
     }
 }
@@ -219,5 +237,37 @@ mod tests {
 
         ProjectState::delete(tmp.path(), uuid).unwrap();
         assert!(list_state_files(tmp.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn mark_rule_done_and_is_rule_done() {
+        let mut state = ProjectState::default();
+        assert!(!state.is_rule_done("abc123"));
+        state.mark_rule_done("abc123");
+        assert!(state.is_rule_done("abc123"));
+    }
+
+    #[test]
+    fn rule_done_persists_across_save_load() {
+        let tmp = tempdir().unwrap();
+        let uuid = Uuid::new_v4();
+        let mut state = ProjectState {
+            project_path: PathBuf::from("/some/project"),
+            last_scan: None,
+            ..Default::default()
+        };
+        state.mark_rule_done("myhash");
+        state.save(tmp.path(), uuid).unwrap();
+
+        let loaded = ProjectState::load(tmp.path(), uuid).unwrap();
+        assert!(loaded.is_rule_done("myhash"));
+    }
+
+    #[test]
+    fn rule_done_does_not_affect_other_hashes() {
+        let mut state = ProjectState::default();
+        state.mark_rule_done("hash_a");
+        assert!(state.is_rule_done("hash_a"));
+        assert!(!state.is_rule_done("hash_b"));
     }
 }

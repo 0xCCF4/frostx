@@ -44,6 +44,7 @@ completed = [  # actions that have been successfully executed and need not repea
     "backup.upload",
 ]
 last_run = "2025-04-01T08:00:00Z"
+rule_done = true  # set when the rule has once = true and all actions succeeded
 
 [[rule]]
 hash = "9e4b7d..."
@@ -74,6 +75,15 @@ Not all actions are recorded as completed:
 | **Mutations** (`archive.compress`, `backup.upload`, `local.delete`) | Yes       | One-time operations; re-running would be destructive or wasteful |
 
 Use `frostx run --force` to re-execute completed mutation actions.
+
+### `once = true` rules
+
+When a `[[rule]]` has `once = true`, an additional `rule_done = true` flag is written to the state file after **all**
+actions (checks and mutations) succeed in a single run. On subsequent invocations the entire rule is skipped, not just
+individual mutations. `--force` bypasses this flag.
+
+The `rule_done` flag follows the same hash-based invalidation as per-action completion: changing `after` or `actions`
+produces a new hash, discarding both the per-action completion list and the `rule_done` flag.
 
 ## UUID Collisions
 

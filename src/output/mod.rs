@@ -47,6 +47,8 @@ pub struct RuleCheckOutput {
     pub triggered: bool,
     pub remaining_seconds: i64,
     pub actions: Vec<ActionCheckOutput>,
+    /// `true` when the rule has `once = true` and completed in a prior run.
+    pub completed_once: bool,
 }
 
 /// Per-action section within a rule check output.
@@ -213,6 +215,7 @@ pub fn build_check_output(
                     message: ao.message.clone(),
                 })
                 .collect(),
+            completed_once: ro.completed_once,
         })
         .collect();
 

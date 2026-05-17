@@ -34,12 +34,14 @@ pub fn print_check(out: &CheckOutput) {
     println!();
 
     for rule in &out.rules {
-        let trigger_marker = if rule.triggered {
+        let trigger_marker = if rule.completed_once {
+            "✓ done (once)".green().bold().to_string()
+        } else if rule.triggered {
             "● TRIGGERED".red().bold().to_string()
         } else {
             "○ not yet".dimmed().to_string()
         };
-        let remaining = if !rule.triggered && rule.remaining_seconds > 0 {
+        let remaining = if !rule.triggered && !rule.completed_once && rule.remaining_seconds > 0 {
             format!(
                 "  ({} remaining)",
                 format_seconds_as_str(rule.remaining_seconds)
@@ -153,6 +155,7 @@ pub fn print_gc(out: &GcOutput) {
         let reason = match entry.reason.as_str() {
             "path_missing" => "path no longer exists".red().to_string(),
             "uuid_mismatch" => "UUID mismatch".yellow().to_string(),
+            "duplicate_path" => "superseded by active state file".yellow().to_string(),
             other => other.to_string(),
         };
         println!(

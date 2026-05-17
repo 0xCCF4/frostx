@@ -3,6 +3,7 @@
 use crate::config::state::{list_state_files, ProjectState};
 use crate::error::FrostxError;
 use crate::output::{GcEntry, GcOutput, FROSTX_VERSION};
+use std::collections::HashSet;
 
 use super::FrostxOpts;
 
@@ -12,11 +13,22 @@ use super::FrostxOpts;
 /// or whose UUID does not match the `frostx.toml` at that path.
 /// When `dry_run` is `true`, files are reported but not deleted.
 ///
+/// The `reason` field of each [`GcEntry`] is one of:
+/// - `path_missing`: the recorded path no longer exists on the filesystem.
+/// - `uuid_mismatch`: the path exists but `frostx.toml` carries a different UUID
+///   and no state file for that active UUID is present in the state directory.
+/// - `duplicate_path`: the path is already owned by another state file whose UUID
+///   matches `frostx.toml`; this file is the stale duplicate.
+///
 /// # Errors
 ///
 /// Returns an error if the state directory cannot be read or a state file cannot be deleted.
 pub fn execute(dry_run: bool, opts: &FrostxOpts) -> Result<GcOutput, FrostxError> {
     let entries = list_state_files(&opts.state_dir)?;
+
+    // Collect all UUIDs present in the state directory for duplicate detection.
+    let all_uuids: HashSet<_> = entries.iter().map(|(u, _)| *u).collect();
+
     let mut orphaned: Vec<GcEntry> = Vec::new();
     let mut removed = 0;
 
@@ -38,12 +50,20 @@ pub fn execute(dry_run: bool, opts: &FrostxOpts) -> Result<GcOutput, FrostxError
             if cfg_path.exists() {
                 // Read id from the config without full parsing.
                 let content = std::fs::read_to_string(&cfg_path).unwrap_or_default();
-                let recorded_uuid: Option<uuid::Uuid> = toml::from_str::<toml::Value>(&content)
+                let toml_uuid: Option<uuid::Uuid> = toml::from_str::<toml::Value>(&content)
                     .ok()
                     .and_then(|v| v.get("id")?.as_str().and_then(|s| s.parse().ok()));
-                if recorded_uuid == Some(*uuid) {
+                if toml_uuid == Some(*uuid) {
+                    // This state file is the active owner.
                     None
+                } else if toml_uuid.is_some_and(|active| all_uuids.contains(&active)) {
+                    // A different state file in the state dir owns this path.
+                    Some((
+                        "duplicate_path".to_string(),
+                        recorded_path.display().to_string(),
+                    ))
                 } else {
+                    // UUID mismatch with no known active owner in the state dir.
                     Some((
                         "uuid_mismatch".to_string(),
                         recorded_path.display().to_string(),

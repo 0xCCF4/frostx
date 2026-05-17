@@ -206,6 +206,12 @@ pub struct Rule {
     pub name: Option<String>,
     pub after: Duration,
     pub actions: Vec<String>,
+    /// When `true`, the entire rule is skipped after one successful run of all
+    /// actions. Subsequent runs treat the rule as finished unless `--force` is
+    /// passed. Individual action completion is still tracked separately so that
+    /// a partial run can resume where it left off before the rule is sealed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub once: bool,
 }
 
 impl Rule {
@@ -309,6 +315,7 @@ mod tests {
             name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["git.check_clean".into(), "git.check_pushed".into()],
+            once: false,
         });
         let expanded = cfg.expand_groups().unwrap();
         assert_eq!(expanded[0], vec!["git.check_clean", "git.check_pushed"]);
@@ -327,6 +334,7 @@ mod tests {
             name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["group.checks".into(), "backup.check".into()],
+            once: false,
         });
         let expanded = cfg.expand_groups().unwrap();
         assert_eq!(
@@ -354,6 +362,7 @@ mod tests {
             name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["group.all".into()],
+            once: false,
         });
         let expanded = cfg.expand_groups().unwrap();
         assert_eq!(expanded[0], vec!["git.check_clean", "backup.check"]);
@@ -378,6 +387,7 @@ mod tests {
             name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["group.a".into()],
+            once: false,
         });
         assert!(cfg.expand_groups().is_err());
     }
@@ -389,6 +399,7 @@ mod tests {
             name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["group.missing".into()],
+            once: false,
         });
         assert!(cfg.expand_groups().is_err());
     }

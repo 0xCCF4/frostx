@@ -141,6 +141,7 @@ fn default_rules() -> Vec<Rule> {
                 unit: DurationUnit::Months,
             },
             actions: vec!["vcs.check_clean".into(), "vcs.check_pushed".into()],
+            once: false,
         },
         Rule {
             name: Some("notify review".into()),
@@ -149,6 +150,7 @@ fn default_rules() -> Vec<Rule> {
                 unit: DurationUnit::Months,
             },
             actions: vec!["notify.review_project".into()],
+            once: false,
         },
     ]
 }

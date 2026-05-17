@@ -56,6 +56,9 @@ pub fn execute(args: &ScanArgs, opts: &FrostxOpts) -> Result<Vec<CheckOutput>, F
             continue;
         };
 
+        state.last_scan = Some(chrono::Utc::now());
+        let _ = state.save(&opts.state_dir, cfg.id);
+
         if args.triggered_only && !outcomes.iter().any(|r| r.triggered) {
             continue;
         }

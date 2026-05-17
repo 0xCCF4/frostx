@@ -1,6 +1,6 @@
 use super::project::{ActionConfig, Group, ProjectConfig, Rule};
 use crate::error::FrostxError;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// Source of TOML fragment content for include resolution.
@@ -126,9 +126,23 @@ fn resolve_includes_impl(
     let mut merged_rules: Vec<Rule> = Vec::new();
     let mut merged_groups: HashMap<String, Group> = HashMap::new();
     let mut merged_config = ActionConfig::default();
+    let mut seen: HashSet<String> = HashSet::new();
 
     for source in &includes {
-        let fragment = match resolve(source) {
+        let fragment_source = resolve(source);
+
+        let dedup_key = match &fragment_source {
+            FragmentSource::File(path) => Some(path.to_string_lossy().into_owned()),
+            FragmentSource::Memory { key, .. } => Some(key.clone()),
+            FragmentSource::Unresolvable { .. } => None,
+        };
+        if let Some(key) = dedup_key {
+            if !seen.insert(key) {
+                continue;
+            }
+        }
+
+        let fragment = match fragment_source {
             FragmentSource::File(path) => {
                 load_fragment(&path, &base.template).map_err(|e| FrostxError::Include {
                     path: source.clone(),
@@ -332,6 +346,7 @@ actions = ["git.check_clean"]
             name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["git.check_pushed".into()],
+            once: false,
         });
 
         // lib dir = project dir (both tmp) so "my-template" resolves to tmp/my-template.toml
@@ -387,6 +402,26 @@ server = "rsync://included-server/"
         assert_eq!(
             result.config.backup.unwrap().server,
             "rsync://local-server/"
+        );
+    }
+
+    #[test]
+    fn duplicate_includes_are_skipped() {
+        let tmp = tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("shared.toml"),
+            "[[rule]]\nafter = \"30d\"\nactions = [\"git.check_clean\"]\n",
+        )
+        .unwrap();
+
+        let mut cfg = base_config();
+        cfg.include = vec!["shared".into(), "shared".into()];
+
+        let result = resolve_includes(cfg, tmp.path(), tmp.path()).unwrap();
+        assert_eq!(
+            result.rules.len(),
+            1,
+            "duplicate include should not double the rules"
         );
     }
 

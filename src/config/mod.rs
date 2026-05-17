@@ -227,6 +227,7 @@ mod tests {
             name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["group.missing".into()],
+            once: false,
         });
         let result = validate(&cfg);
         assert!(result.errors.iter().any(|e| e.contains("unknown group")));
@@ -239,6 +240,7 @@ mod tests {
             name: None,
             after: Duration::parse("90d").unwrap(),
             actions: vec!["backup.check".into()],
+            once: false,
         });
         let result = validate(&cfg);
         assert!(result.errors.iter().any(|e| e.contains("backup")));

@@ -112,6 +112,90 @@ fn gc_removes_orphaned_state() {
 }
 
 #[test]
+fn gc_detects_duplicate_path() {
+    let tmp = tempdir().unwrap();
+    let state_dir = tempdir().unwrap();
+
+    let proj = tmp.path().join("myproject");
+    fs::create_dir(&proj).unwrap();
+
+    // Init and check to create state file A with project_path populated.
+    run(
+        &[
+            "--state-dir",
+            state_dir.path().to_str().unwrap(),
+            "init",
+            ".",
+        ],
+        &proj,
+    );
+    run(
+        &[
+            "--state-dir",
+            state_dir.path().to_str().unwrap(),
+            "check",
+            ".",
+        ],
+        &proj,
+    );
+
+    // Extract UUID A from frostx.toml.
+    let cfg_content = fs::read_to_string(proj.join("frostx.toml")).unwrap();
+    let uuid_a_str = cfg_content
+        .lines()
+        .find(|l| l.starts_with("id = "))
+        .and_then(|l| l.split('"').nth(1))
+        .expect("id field not found in frostx.toml")
+        .to_string();
+
+    // Create UUID B as the new active owner for the same path.
+    let uuid_b = uuid::Uuid::new_v4();
+    let canonical_proj = proj.canonicalize().unwrap();
+
+    // Write state file B pointing to the same project path.
+    let state_b = format!("project_path = \"{}\"\n", canonical_proj.display());
+    fs::write(state_dir.path().join(format!("{uuid_b}.toml")), state_b).unwrap();
+
+    // Update frostx.toml to use UUID B, making state file A a stale duplicate.
+    let new_cfg = cfg_content.replace(&uuid_a_str, &uuid_b.to_string());
+    fs::write(proj.join("frostx.toml"), new_cfg).unwrap();
+
+    // Dry-run: A detected as duplicate_path, nothing deleted.
+    let out = run(
+        &[
+            "--dry-run",
+            "--json",
+            "--state-dir",
+            state_dir.path().to_str().unwrap(),
+            "gc",
+        ],
+        tmp.path(),
+    );
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).unwrap();
+    let orphaned = v["orphaned"].as_array().unwrap();
+    assert_eq!(orphaned.len(), 1);
+    assert_eq!(orphaned[0]["reason"], "duplicate_path");
+    assert_eq!(v["removed"], 0);
+    assert_eq!(fs::read_dir(state_dir.path()).unwrap().count(), 2);
+
+    // Without dry-run: stale file A deleted, active file B kept.
+    let out = run(
+        &[
+            "--json",
+            "--state-dir",
+            state_dir.path().to_str().unwrap(),
+            "gc",
+        ],
+        tmp.path(),
+    );
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).unwrap();
+    assert_eq!(v["removed"], 1);
+    assert_eq!(fs::read_dir(state_dir.path()).unwrap().count(), 1);
+}
+
+#[test]
 fn gc_json_shape() {
     let tmp = tempdir().unwrap();
     let state_dir = tempdir().unwrap();

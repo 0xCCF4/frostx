@@ -124,14 +124,43 @@ actions = ["git.check_clean", "git.check_pushed", "backup.check"]
 
 ### Fields
 
-| Field     | Type             | Required | Description                                                    |
-|-----------|------------------|----------|----------------------------------------------------------------|
-| `name`    | string           | no       | Human-readable label shown in output and logs                  |
-| `after`   | duration string  | yes      | Inactivity period that triggers this rule                      |
-| `actions` | array of strings | yes      | Ordered list of action names to execute                        |
+| Field     | Type             | Required | Default | Description                                                                     |
+|-----------|------------------|----------|---------|---------------------------------------------------------------------------------|
+| `name`    | string           | no       | —       | Human-readable label shown in output and logs                                   |
+| `after`   | duration string  | yes      | —       | Inactivity period that triggers this rule                                       |
+| `actions` | array of strings | yes      | —       | Ordered list of action names to execute                                         |
+| `once`    | bool             | no       | `false` | When `true`, the rule is permanently sealed after one fully successful run      |
 
 Action names are either built-in (`git.check_clean`, `archive.compress`, ...) or group references (`group.<name>`) or hook
 references (`hook.<name>`). See [actions.md](actions.md) for the full list.
+
+### `once = true`
+
+```toml
+[[rule]]
+after = "90d"
+once = true
+actions = ["git.tag", "archive.compress", "backup.upload"]
+```
+
+When `once = true`, the entire rule is skipped after **all** actions (both checks and mutations) succeed in a single
+run. The rule will not trigger again in future invocations, even as the project continues to age.
+
+**Use this for rules that should only ever run once**, such as a final archival-and-delete flow that has no useful
+meaning to repeat.
+
+Behavior details:
+
+- The rule is sealed atomically at the end of a successful run. A partial run (any action fails) does not seal it —
+  individual mutation actions that already ran are still recorded as completed (existing behavior), but the rule
+  remains eligible to retry on the next invocation.
+- `--force` bypasses the sealed state: the rule runs as if it had never completed. If it succeeds again, it is
+  re-sealed.
+- `frostx check` shows sealed rules with a **✓ done (once)** marker and lists every action as `completed`. The JSON
+  output includes `"completed_once": true` on the rule object.
+- Changing `after` or `actions` in a sealed rule invalidates its completion record (same as for regular mutations).
+  Changing only `once` from `true` to `false` does not reset the per-action completion records, but the
+  "rule done" flag is no longer consulted.
 
 ---
 
