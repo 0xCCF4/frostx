@@ -9,8 +9,8 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 
 /// Static registration of all archive actions.
-pub const REGISTRY: &[(&str, ActionFactory)] = &[("archive.compress", |config| {
-    Ok(Box::new(TarGz::new(config)))
+pub const REGISTRY: &[(&str, ActionFactory)] = &[("archive.compress", |config, tag| {
+    Ok(Box::new(TarGz::new(config, tag)))
 })];
 
 /// Create a compressed archive of the project directory, replacing it.
@@ -26,15 +26,14 @@ pub struct TarGz {
 }
 
 impl TarGz {
-    /// Construct from project config, falling back to gzip if no archive config is set.
+    /// Construct from project config, applying any override for `tag`.
+    ///
+    /// Falls back to gzip if no archive config is set and no override applies.
     #[must_use]
-    pub fn new(config: &ProjectConfig) -> Self {
-        let compression = config
-            .config
-            .archive
-            .as_ref()
-            .map_or(Compression::Gz, |a| a.compression.clone());
-        Self { compression }
+    pub fn new(config: &ProjectConfig, tag: Option<&str>) -> Self {
+        Self {
+            compression: config.resolve_archive(tag).compression,
+        }
     }
 
     /// Returns the output path for the archive.
@@ -370,7 +369,10 @@ mod tests {
             template: std::collections::HashMap::new(),
             groups: HashMap::new(),
             config: ActionConfig {
-                archive: Some(ArchiveConfig { compression }),
+                archive: Some(ArchiveConfig {
+                    compression,
+                    overrides: std::collections::HashMap::new(),
+                }),
                 ..ActionConfig::default()
             },
             rules: vec![],
@@ -384,7 +386,7 @@ mod tests {
         std::fs::write(src.path().join("hello.txt"), "world").unwrap();
 
         let cfg = make_config(Compression::Gz);
-        let action = TarGz::new(&cfg);
+        let action = TarGz::new(&cfg, None);
         let archive = action.archive_path(src.path(), &cfg.id);
         // Place archive in a writable location.
         let archive = out_dir.path().join(archive.file_name().unwrap());
@@ -412,7 +414,7 @@ mod tests {
         std::fs::write(src.path().join("f.txt"), "x").unwrap();
 
         let cfg = make_config(Compression::Gz);
-        let action = TarGz::new(&cfg);
+        let action = TarGz::new(&cfg, None);
         let ctx = ActionContext {
             project_path: src.path(),
             config: &cfg,
@@ -436,7 +438,7 @@ mod tests {
         std::fs::write(project.join("main.rs"), "fn main() {}").unwrap();
 
         let cfg = make_config(Compression::Gz);
-        let action = TarGz::new(&cfg);
+        let action = TarGz::new(&cfg, None);
         let ctx = ActionContext {
             project_path: &project,
             config: &cfg,
@@ -517,7 +519,7 @@ mod tests {
         std::fs::write(project.join("data.txt"), "original").unwrap();
 
         let cfg = make_config(Compression::Gz);
-        let action = TarGz::new(&cfg);
+        let action = TarGz::new(&cfg, None);
         let archive_path = action.archive_path(&project, &cfg.id);
 
         create_archive(&project, &archive_path, &Compression::Gz).unwrap();

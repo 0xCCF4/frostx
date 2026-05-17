@@ -4,8 +4,8 @@ use crate::error::FrostxError;
 use std::path::{Path, PathBuf};
 
 /// Static registration of all fs actions.
-pub const REGISTRY: &[(&str, ActionFactory)] = &[("fs.clean_artifacts", |config| {
-    Ok(Box::new(CleanArtifacts::new(config)))
+pub const REGISTRY: &[(&str, ActionFactory)] = &[("fs.clean_artifacts", |config, tag| {
+    Ok(Box::new(CleanArtifacts::new(config, tag)))
 })];
 
 /// Detects a project type and returns the artifact paths to remove.
@@ -59,12 +59,27 @@ impl Cleaner for PythonCleaner {
         if !detected {
             return vec![];
         }
-        let p = project_path.join(".venv");
-        if p.exists() {
-            vec![p]
-        } else {
-            vec![]
+
+        let mut paths = Vec::new();
+
+        let venv = project_path.join(".venv");
+        if venv.exists() {
+            paths.push(venv);
         }
+
+        // Collect __pycache__ dirs, but skip inside .venv to avoid double-counting.
+        let venv_prefix = project_path.join(".venv");
+        for entry in walkdir::WalkDir::new(project_path)
+            .into_iter()
+            .filter_entry(|e| e.path() != venv_prefix)
+            .filter_map(std::result::Result::ok)
+        {
+            if entry.file_type().is_dir() && entry.file_name() == "__pycache__" {
+                paths.push(entry.into_path());
+            }
+        }
+
+        paths
     }
 }
 
@@ -75,25 +90,25 @@ pub struct CleanArtifacts {
 }
 
 impl CleanArtifacts {
-    /// Construct from project config, enabling all cleaners unless explicitly disabled.
+    /// Construct from project config, applying any override for `tag`.
     #[must_use]
-    pub fn new(config: &ProjectConfig) -> Self {
-        let fs = config.config.fs.clone().unwrap_or_default();
+    pub fn new(config: &ProjectConfig, tag: Option<&str>) -> Self {
+        let resolved = config.resolve_fs(tag);
 
         let mut cleaners: Vec<Box<dyn Cleaner>> = Vec::new();
-        if fs.cleaners.rust {
+        if resolved.cleaners.rust {
             cleaners.push(Box::new(RustCleaner));
         }
-        if fs.cleaners.node {
+        if resolved.cleaners.node {
             cleaners.push(Box::new(NodeCleaner));
         }
-        if fs.cleaners.python {
+        if resolved.cleaners.python {
             cleaners.push(Box::new(PythonCleaner));
         }
 
         Self {
             cleaners,
-            extra_paths: fs.extra_paths,
+            extra_paths: resolved.extra_paths,
         }
     }
 
@@ -240,7 +255,7 @@ mod tests {
     fn no_marker_no_artifacts() {
         let tmp = tempdir().unwrap();
         let cfg = default_config();
-        let action = CleanArtifacts::new(&cfg);
+        let action = CleanArtifacts::new(&cfg, None);
         let ctx = ActionContext {
             project_path: tmp.path(),
             config: &cfg,
@@ -261,7 +276,7 @@ mod tests {
         std::fs::write(target.join("binary"), "data").unwrap();
 
         let cfg = default_config();
-        let action = CleanArtifacts::new(&cfg);
+        let action = CleanArtifacts::new(&cfg, None);
         let ctx = ActionContext {
             project_path: tmp.path(),
             config: &cfg,
@@ -280,7 +295,7 @@ mod tests {
         std::fs::create_dir(&target).unwrap();
 
         let cfg = default_config();
-        let action = CleanArtifacts::new(&cfg);
+        let action = CleanArtifacts::new(&cfg, None);
         let ctx = ActionContext {
             project_path: tmp.path(),
             config: &cfg,
@@ -302,7 +317,7 @@ mod tests {
         std::fs::write(nm.join("pkg.js"), "data").unwrap();
 
         let cfg = default_config();
-        let action = CleanArtifacts::new(&cfg);
+        let action = CleanArtifacts::new(&cfg, None);
         let ctx = ActionContext {
             project_path: tmp.path(),
             config: &cfg,
@@ -322,7 +337,7 @@ mod tests {
         std::fs::create_dir(&venv).unwrap();
 
         let cfg = default_config();
-        let action = CleanArtifacts::new(&cfg);
+        let action = CleanArtifacts::new(&cfg, None);
         let ctx = ActionContext {
             project_path: tmp.path(),
             config: &cfg,
@@ -335,6 +350,34 @@ mod tests {
     }
 
     #[test]
+    fn python_cleaner_removes_pycache_dirs() {
+        let tmp = tempdir().unwrap();
+        std::fs::write(tmp.path().join("pyproject.toml"), "[project]").unwrap();
+        let pkg = tmp.path().join("mypackage");
+        std::fs::create_dir(&pkg).unwrap();
+        let cache = pkg.join("__pycache__");
+        std::fs::create_dir(&cache).unwrap();
+        std::fs::write(cache.join("mod.cpython-312.pyc"), "bytecode").unwrap();
+        let nested = pkg.join("sub");
+        std::fs::create_dir(&nested).unwrap();
+        let nested_cache = nested.join("__pycache__");
+        std::fs::create_dir(&nested_cache).unwrap();
+
+        let cfg = default_config();
+        let action = CleanArtifacts::new(&cfg, None);
+        let ctx = ActionContext {
+            project_path: tmp.path(),
+            config: &cfg,
+            dry_run: false,
+            yes: true,
+        };
+        let out = action.run(&ctx).unwrap();
+        assert_eq!(out.status, crate::pipeline::ActionStatus::Ok);
+        assert!(!cache.exists());
+        assert!(!nested_cache.exists());
+    }
+
+    #[test]
     fn python_cleaner_detects_setup_py() {
         let tmp = tempdir().unwrap();
         std::fs::write(tmp.path().join("setup.py"), "from setuptools import setup").unwrap();
@@ -342,7 +385,7 @@ mod tests {
         std::fs::create_dir(&venv).unwrap();
 
         let cfg = default_config();
-        let action = CleanArtifacts::new(&cfg);
+        let action = CleanArtifacts::new(&cfg, None);
         let ctx = ActionContext {
             project_path: tmp.path(),
             config: &cfg,
@@ -369,7 +412,7 @@ mod tests {
             },
             ..FsConfig::default()
         }));
-        let action = CleanArtifacts::new(&cfg);
+        let action = CleanArtifacts::new(&cfg, None);
         let ctx = ActionContext {
             project_path: tmp.path(),
             config: &cfg,
@@ -395,8 +438,9 @@ mod tests {
                 node: false,
                 python: false,
             },
+            ..FsConfig::default()
         }));
-        let action = CleanArtifacts::new(&cfg);
+        let action = CleanArtifacts::new(&cfg, None);
         let ctx = ActionContext {
             project_path: tmp.path(),
             config: &cfg,
@@ -416,7 +460,7 @@ mod tests {
         std::fs::create_dir(&target).unwrap();
 
         let cfg = default_config();
-        let action = CleanArtifacts::new(&cfg);
+        let action = CleanArtifacts::new(&cfg, None);
         let ctx = ActionContext {
             project_path: tmp.path(),
             config: &cfg,

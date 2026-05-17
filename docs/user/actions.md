@@ -100,6 +100,44 @@ actions = [
 ]
 ```
 
+### Per-action overrides (`#tag`)
+
+Actions in the `backup.*`, `archive.*`, `fs.*`, and `vcs.*` categories support a `#tag` suffix that selects a
+named override entry instead of the base config section.
+
+```toml
+[config.backup]
+server = "rsync://primary.example.com/projects"
+
+[config.backup.overrides.offsite]
+server = "rsync://offsite.example.com/projects"
+
+[[rule]]
+after = "180d"
+actions = [
+    "backup.upload",          # uses [config.backup]
+    "backup.upload#offsite",  # uses [config.backup.overrides.offsite]
+    "backup.verify#offsite",
+]
+```
+
+Override entries are **merge-patches** over the base config: only the fields present in the override replace the
+corresponding base values; absent fields inherit from the base section.
+
+`frostx doctor` validates that every `#tag` referenced in an action list has a matching override entry defined in the
+config. Missing override entries are reported as errors.
+
+Categories and their override table:
+
+| Category  | Override table                         |
+|-----------|----------------------------------------|
+| `backup`  | `[config.backup.overrides.<tag>]`      |
+| `archive` | `[config.archive.overrides.<tag>]`     |
+| `fs`      | `[config.fs.overrides.<tag>]`          |
+| `vcs`     | `[config.vcs.overrides.<tag>]`         |
+
+See [frostx-toml.md](frostx-toml.md) for the full field reference for each override table.
+
 ---
 
 ## VCS-agnostic actions
@@ -123,6 +161,8 @@ instead, set `skip_if_no_vcs = true` in `[config.vcs]`:
 [config.vcs]
 skip_if_no_vcs = true
 ```
+
+All `vcs.*` actions support `#tag` overrides via `[config.vcs.overrides.<tag>]`.
 
 ---
 
@@ -179,6 +219,8 @@ Fails if no archive for this project UUID is found on the configured backup serv
 server = "rsync://backup.example.com/projects"  # required
 ```
 
+Supports `#tag` overrides via `[config.backup.overrides.<tag>]`.
+
 ---
 
 ## Mutations
@@ -220,6 +262,8 @@ extra_paths = ["dist/", "build/"]  # always removed if they exist
 python = false  # skip Python detection entirely
 ```
 
+Supports `#tag` overrides via `[config.fs.overrides.<tag>]`.
+
 ---
 
 ### `git.tag`
@@ -247,6 +291,8 @@ Output: `<parent-dir>/<project-dir>-<uuid>-<date>.tar.gz`
 compression = "gz"   # gz (default) | zstd | xz
 ```
 
+Supports `#tag` overrides via `[config.archive.overrides.<tag>]`.
+
 ---
 
 ### `backup.upload`
@@ -257,6 +303,8 @@ Uploads the project to the configured backup server, with a progress indicator.
 [config.backup]
 server = "rsync://backup.example.com/projects"  # required
 ```
+
+Supports `#tag` overrides via `[config.backup.overrides.<tag>]`.
 
 ---
 
@@ -278,6 +326,8 @@ and skips re-verification on subsequent runs (pass `--force` to re-verify).
 [config.backup]
 server = "rsync://backup.example.com/projects"  # required
 ```
+
+Supports `#tag` overrides via `[config.backup.overrides.<tag>]`.
 
 ---
 

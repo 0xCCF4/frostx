@@ -86,7 +86,8 @@ Executes the pipeline:
 1. Expands group references (`config.expand_groups()`).
 2. For each triggered rule, iterates actions in order.
 3. Skips completed mutations (unless `opts.force`).
-4. Calls `actions::create(name, config)` to instantiate the action.
+4. Calls `actions::create(name, config)` to instantiate the action. `create` strips any `#tag` suffix before registry
+   lookup and passes the tag as `Option<&str>` to the factory so the action can apply per-tag config overrides.
 5. If `current_path.is_file()` and `!action.supports_compressed_archive()`:
    - Check → `ActionStatus::Skipped`, chain continues.
    - Mutation → `ActionStatus::Failed`, chain stops.
@@ -144,10 +145,20 @@ is a file, `parent()` gives the directory to operate in. The `hook` implementati
 which is a user-controlled `bool` field that defaults to `false`. This gives users explicit control over which of
 their hooks are safe to run on an archive target, rather than opt-ing in all hooks globally.
 
+#### `ActionFactory` type
+
+```rust
+type ActionFactory = fn(&ProjectConfig, Option<&str>) -> Result<Box<dyn Action>, FrostxError>;
+```
+
+The second parameter is the resolved `#tag` suffix, if present. Factory closures use it to select a named override
+entry from the config (e.g., `config.resolve_backup(tag)`). Factories that do not support overrides ignore it.
+
 #### Registration
 
 Each action module owns a `pub const REGISTRY: &[(&str, ActionFactory)]` that maps its action names to factory
-closures. `actions::create(name, config)` iterates `ALL_REGISTRIES` (a list of all module registries defined in
+closures. `actions::create(name, config)` strips any `#tag` suffix from `name` before registry lookup, then passes the
+tag as `Option<&str>` to the matched factory. It iterates `ALL_REGISTRIES` (a list of all module registries defined in
 `actions/mod.rs`) before falling back to dynamic-prefix handling for `hook.*` and `notify.*`.
 
 Adding a new static action requires only:
@@ -254,6 +265,7 @@ main() parses CLI
         │     └─ for each triggered rule:
         │           for each action:
         │             actions::create(name, config) → Box<dyn Action>
+        │               (strips #tag suffix; passes tag to factory)
         │             action.run(ctx) → ActionOutcome
         │             state.mark_completed(rule_hash, ...) [mutations only]
         │             on_action(rule_idx, &outcome) → caller renders line

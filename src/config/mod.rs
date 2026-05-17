@@ -101,6 +101,64 @@ pub struct ValidationResult {
     pub warnings: Vec<String>,
 }
 
+/// Check that a `#tag` suffix on `base_action` resolves to a defined override
+/// entry for the action's category.  Returns an error message if invalid, or
+/// `None` when the tag is valid (or the category has no override support).
+fn validate_action_tag(
+    cfg: &ProjectConfig,
+    loc: &str,
+    base_action: &str,
+    tag: &str,
+) -> Option<String> {
+    // (category name, Some(true) = tag defined, Some(false) = section present but tag absent, None = section absent)
+    let entries: &[(&str, Option<bool>)] = &[
+        (
+            "backup",
+            cfg.config
+                .backup
+                .as_ref()
+                .map(|c| c.overrides.contains_key(tag)),
+        ),
+        (
+            "archive",
+            cfg.config
+                .archive
+                .as_ref()
+                .map(|c| c.overrides.contains_key(tag)),
+        ),
+        (
+            "fs",
+            cfg.config
+                .fs
+                .as_ref()
+                .map(|c| c.overrides.contains_key(tag)),
+        ),
+        (
+            "vcs",
+            cfg.config
+                .vcs
+                .as_ref()
+                .map(|c| c.overrides.contains_key(tag)),
+        ),
+    ];
+
+    let &(cat, found) = entries
+        .iter()
+        .find(|(cat, _)| base_action.starts_with(&format!("{cat}.")))?;
+
+    // [config.backup] absence is validated separately; suppress the tag error here.
+    if cat == "backup" && found.is_none() {
+        return None;
+    }
+
+    (found != Some(true)).then(|| {
+        format!(
+            "{loc}: {cat} tag '{tag}' not defined in \
+             [config.{cat}.overrides.{tag}]"
+        )
+    })
+}
+
 /// Validate `cfg` for structural correctness without running anything.
 ///
 /// Returns lists of errors and warnings. Callers should treat a non-empty
@@ -124,27 +182,36 @@ pub fn validate(cfg: &ProjectConfig) -> ValidationResult {
         }
         for (j, action) in rule.actions.iter().enumerate() {
             let loc = format!("{rule_label}.actions[{}]", j + 1);
-            if let Some(group_name) = action.strip_prefix("group.") {
+            // Split off any `#tag` suffix for base-name lookup, keeping the
+            // tag to validate that a matching override entry exists.
+            let (base_action, tag) = action
+                .split_once('#')
+                .map_or((action.as_str(), None), |(b, t)| (b, Some(t)));
+            if let Some(group_name) = base_action.strip_prefix("group.") {
                 if !cfg.groups.contains_key(group_name) {
                     errors.push(format!("{loc}: unknown group '{group_name}'"));
                 }
-            } else if let Some(hook_name) = action.strip_prefix("hook.") {
+            } else if let Some(hook_name) = base_action.strip_prefix("hook.") {
                 if !cfg.config.hooks.contains_key(hook_name) {
                     errors.push(format!(
                         "{loc}: hook '{hook_name}' not defined in [config.hook.{hook_name}]"
                     ));
                 }
-            } else if let Some(notify_name) = action.strip_prefix("notify.") {
+            } else if let Some(notify_name) = base_action.strip_prefix("notify.") {
                 if !cfg.config.notifies.contains_key(notify_name) {
                     errors.push(format!(
                         "{loc}: notify '{notify_name}' not defined in [config.notify.{notify_name}]"
                     ));
                 }
-            } else if !actions::all_static_actions().contains(&action.as_str()) {
+            } else if !actions::all_static_actions().contains(&base_action) {
                 errors.push(format!(
                     "{loc}: {}",
                     diagnostics::unknown_action_hint(action)
                 ));
+            } else if let Some(t) = tag {
+                if let Some(err) = validate_action_tag(cfg, &loc, base_action, t) {
+                    errors.push(err);
+                }
             }
         }
     }
@@ -244,5 +311,56 @@ mod tests {
         });
         let result = validate(&cfg);
         assert!(result.errors.iter().any(|e| e.contains("backup")));
+    }
+
+    #[test]
+    fn validate_tagged_backup_action_with_defined_override_is_ok() {
+        use crate::config::project::{BackupConfig, BackupConfigOverride};
+        let mut cfg = minimal_cfg();
+        let mut backup = BackupConfig {
+            server: "rsync://base.example.com/".into(),
+            overrides: HashMap::new(),
+        };
+        backup.overrides.insert(
+            "offsite".into(),
+            BackupConfigOverride {
+                server: Some("rsync://offsite.example.com/".into()),
+            },
+        );
+        cfg.config.backup = Some(backup);
+        cfg.rules.push(Rule {
+            name: None,
+            after: Duration::parse("90d").unwrap(),
+            actions: vec!["backup.upload#offsite".into()],
+            once: false,
+        });
+        let result = validate(&cfg);
+        assert!(
+            result.errors.is_empty(),
+            "unexpected errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn validate_tagged_backup_action_with_missing_override_is_error() {
+        use crate::config::project::BackupConfig;
+        let mut cfg = minimal_cfg();
+        cfg.config.backup = Some(BackupConfig {
+            server: "rsync://base.example.com/".into(),
+            overrides: HashMap::new(),
+        });
+        cfg.rules.push(Rule {
+            name: None,
+            after: Duration::parse("90d").unwrap(),
+            actions: vec!["backup.upload#missing".into()],
+            once: false,
+        });
+        let result = validate(&cfg);
+        assert!(
+            result.errors.iter().any(|e| e.contains("missing")),
+            "expected error about missing tag, got: {:?}",
+            result.errors
+        );
     }
 }

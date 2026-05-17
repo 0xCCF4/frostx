@@ -2,7 +2,7 @@ use super::{Action, ActionContext, ActionFactory, ActionKind, ActionOutcome};
 use crate::error::FrostxError;
 
 /// Static registration of all local actions.
-pub const REGISTRY: &[(&str, ActionFactory)] = &[("local.delete", |_| Ok(Box::new(Delete)))];
+pub const REGISTRY: &[(&str, ActionFactory)] = &[("local.delete", |_, _| Ok(Box::new(Delete)))];
 
 /// Delete the local project directory. Always asks for explicit confirmation.
 pub struct Delete;

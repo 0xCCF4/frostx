@@ -31,14 +31,18 @@ fn levenshtein(a: &str, b: &str) -> usize {
 
 /// Return up to 3 static action names closest to `name` by edit distance.
 ///
+/// Any `#tag` suffix is stripped before comparison so that a tagged action
+/// such as `backup.upload#typo` still receives useful suggestions.
+///
 /// The threshold scales with name length so short typos surface near misses
 /// while completely unrelated names are suppressed.
 #[must_use]
 pub fn suggest_actions(name: &str) -> Vec<&'static str> {
-    let threshold = (name.len() / 3 + 2).min(6);
+    let base = name.split_once('#').map_or(name, |(b, _)| b);
+    let threshold = (base.len() / 3 + 2).min(6);
     let mut scored: Vec<(&'static str, usize)> = actions::all_static_actions()
         .iter()
-        .map(|&a| (a, levenshtein(name, a)))
+        .map(|&a| (a, levenshtein(base, a)))
         .filter(|(_, d)| *d <= threshold)
         .collect();
     scored.sort_by_key(|&(_, d)| d);

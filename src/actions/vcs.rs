@@ -3,9 +3,21 @@ use crate::error::FrostxError;
 
 /// Static registration of all vcs actions.
 pub const REGISTRY: &[(&str, ActionFactory)] = &[
-    ("vcs.check_clean", |_| Ok(Box::new(CheckClean))),
-    ("vcs.check_pushed", |_| Ok(Box::new(CheckPushed))),
-    ("vcs.mark", |_| Ok(Box::new(Mark))),
+    ("vcs.check_clean", |config, tag| {
+        Ok(Box::new(CheckClean {
+            skip_if_no_vcs: config.resolve_vcs(tag).skip_if_no_vcs,
+        }))
+    }),
+    ("vcs.check_pushed", |config, tag| {
+        Ok(Box::new(CheckPushed {
+            skip_if_no_vcs: config.resolve_vcs(tag).skip_if_no_vcs,
+        }))
+    }),
+    ("vcs.mark", |config, tag| {
+        Ok(Box::new(Mark {
+            skip_if_no_vcs: config.resolve_vcs(tag).skip_if_no_vcs,
+        }))
+    }),
 ];
 
 /// Uniform interface that each VCS backend must provide for the shared `vcs.*` actions.
@@ -69,17 +81,8 @@ fn find_backend(path: &std::path::Path) -> Option<Box<dyn VcsBackend>> {
     backends().into_iter().find(|b| b.is_applicable(path))
 }
 
-/// Returns the outcome for when no VCS is detected.
-///
-/// Fails by default. Skips silently only when `[config.vcs] skip_if_no_vcs = true`.
-fn no_vcs_outcome(ctx: &ActionContext<'_>) -> ActionOutcome {
-    let skip = ctx
-        .config
-        .config
-        .vcs
-        .as_ref()
-        .is_some_and(|v| v.skip_if_no_vcs);
-    if skip {
+fn no_vcs_outcome(skip_if_no_vcs: bool) -> ActionOutcome {
+    if skip_if_no_vcs {
         ActionOutcome::skipped("no VCS repository detected")
     } else {
         ActionOutcome::failed(
@@ -89,7 +92,9 @@ fn no_vcs_outcome(ctx: &ActionContext<'_>) -> ActionOutcome {
 }
 
 /// Auto-detect VCS and check for uncommitted changes.
-pub struct CheckClean;
+pub struct CheckClean {
+    skip_if_no_vcs: bool,
+}
 
 impl Action for CheckClean {
     fn name(&self) -> &'static str {
@@ -103,13 +108,15 @@ impl Action for CheckClean {
     fn run(&self, ctx: &ActionContext<'_>) -> Result<ActionOutcome, FrostxError> {
         match find_backend(ctx.project_path) {
             Some(b) => b.check_clean(ctx),
-            None => Ok(no_vcs_outcome(ctx)),
+            None => Ok(no_vcs_outcome(self.skip_if_no_vcs)),
         }
     }
 }
 
 /// Auto-detect VCS, fetch from remotes, and check for unpushed commits.
-pub struct CheckPushed;
+pub struct CheckPushed {
+    skip_if_no_vcs: bool,
+}
 
 impl Action for CheckPushed {
     fn name(&self) -> &'static str {
@@ -123,13 +130,15 @@ impl Action for CheckPushed {
     fn run(&self, ctx: &ActionContext<'_>) -> Result<ActionOutcome, FrostxError> {
         match find_backend(ctx.project_path) {
             Some(b) => b.check_pushed(ctx),
-            None => Ok(no_vcs_outcome(ctx)),
+            None => Ok(no_vcs_outcome(self.skip_if_no_vcs)),
         }
     }
 }
 
 /// Auto-detect VCS and mark the last active state (git annotated tag / jj bookmark).
-pub struct Mark;
+pub struct Mark {
+    skip_if_no_vcs: bool,
+}
 
 impl Action for Mark {
     fn name(&self) -> &'static str {
@@ -143,7 +152,7 @@ impl Action for Mark {
     fn run(&self, ctx: &ActionContext<'_>) -> Result<ActionOutcome, FrostxError> {
         match find_backend(ctx.project_path) {
             Some(b) => b.mark(ctx),
-            None => Ok(no_vcs_outcome(ctx)),
+            None => Ok(no_vcs_outcome(self.skip_if_no_vcs)),
         }
     }
 }
@@ -187,6 +196,7 @@ mod tests {
         let mut cfg = make_config();
         cfg.config.vcs = Some(VcsConfig {
             skip_if_no_vcs: true,
+            overrides: std::collections::HashMap::new(),
         });
         cfg
     }
@@ -214,7 +224,11 @@ mod tests {
         let tmp = tempdir().unwrap();
         let cfg = make_config();
         let ctx = make_ctx(tmp.path(), &cfg);
-        let out = CheckClean.run(&ctx).unwrap();
+        let out = CheckClean {
+            skip_if_no_vcs: false,
+        }
+        .run(&ctx)
+        .unwrap();
         assert_eq!(out.status, crate::pipeline::ActionStatus::Failed);
     }
 
@@ -223,7 +237,11 @@ mod tests {
         let tmp = tempdir().unwrap();
         let cfg = make_config();
         let ctx = make_ctx(tmp.path(), &cfg);
-        let out = CheckPushed.run(&ctx).unwrap();
+        let out = CheckPushed {
+            skip_if_no_vcs: false,
+        }
+        .run(&ctx)
+        .unwrap();
         assert_eq!(out.status, crate::pipeline::ActionStatus::Failed);
     }
 
@@ -232,7 +250,11 @@ mod tests {
         let tmp = tempdir().unwrap();
         let cfg = make_config();
         let ctx = make_ctx(tmp.path(), &cfg);
-        let out = Mark.run(&ctx).unwrap();
+        let out = Mark {
+            skip_if_no_vcs: false,
+        }
+        .run(&ctx)
+        .unwrap();
         assert_eq!(out.status, crate::pipeline::ActionStatus::Failed);
     }
 
@@ -241,7 +263,11 @@ mod tests {
         let tmp = tempdir().unwrap();
         let cfg = make_config_skip_if_no_vcs();
         let ctx = make_ctx(tmp.path(), &cfg);
-        let out = CheckClean.run(&ctx).unwrap();
+        let out = CheckClean {
+            skip_if_no_vcs: true,
+        }
+        .run(&ctx)
+        .unwrap();
         assert_eq!(out.status, crate::pipeline::ActionStatus::Skipped);
     }
 
@@ -250,7 +276,11 @@ mod tests {
         let tmp = tempdir().unwrap();
         let cfg = make_config_skip_if_no_vcs();
         let ctx = make_ctx(tmp.path(), &cfg);
-        let out = Mark.run(&ctx).unwrap();
+        let out = Mark {
+            skip_if_no_vcs: true,
+        }
+        .run(&ctx)
+        .unwrap();
         assert_eq!(out.status, crate::pipeline::ActionStatus::Skipped);
     }
 
@@ -272,7 +302,11 @@ mod tests {
 
         let cfg = make_config();
         let ctx = make_ctx(tmp.path(), &cfg);
-        let out = CheckClean.run(&ctx).unwrap();
+        let out = CheckClean {
+            skip_if_no_vcs: false,
+        }
+        .run(&ctx)
+        .unwrap();
         assert_eq!(out.status, crate::pipeline::ActionStatus::Ok);
     }
 
@@ -295,7 +329,11 @@ mod tests {
         let cfg = make_config();
         let mut ctx = make_ctx(tmp.path(), &cfg);
         ctx.dry_run = true;
-        let out = Mark.run(&ctx).unwrap();
+        let out = Mark {
+            skip_if_no_vcs: false,
+        }
+        .run(&ctx)
+        .unwrap();
         assert_eq!(out.status, crate::pipeline::ActionStatus::DryRun);
         assert!(
             out.message.contains("tag"),
@@ -311,7 +349,11 @@ mod tests {
         let cfg = make_config();
         let mut ctx = make_ctx(tmp.path(), &cfg);
         ctx.dry_run = true;
-        let out = Mark.run(&ctx).unwrap();
+        let out = Mark {
+            skip_if_no_vcs: false,
+        }
+        .run(&ctx)
+        .unwrap();
         assert_eq!(out.status, crate::pipeline::ActionStatus::DryRun);
         assert!(
             out.message.contains("bookmark"),
@@ -329,7 +371,11 @@ mod tests {
         let cfg = make_config();
         let mut ctx = make_ctx(tmp.path(), &cfg);
         ctx.dry_run = true;
-        let out = Mark.run(&ctx).unwrap();
+        let out = Mark {
+            skip_if_no_vcs: false,
+        }
+        .run(&ctx)
+        .unwrap();
         assert_eq!(out.status, crate::pipeline::ActionStatus::DryRun);
         assert!(
             out.message.contains("bookmark"),

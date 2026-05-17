@@ -27,7 +27,11 @@ use crate::error::FrostxError;
 use std::path::{Path, PathBuf};
 
 /// Factory function type: creates a [`Box<dyn Action>`] from project config.
-pub type ActionFactory = fn(&ProjectConfig) -> Result<Box<dyn Action>, FrostxError>;
+///
+/// The second argument is the `#tag` suffix stripped from the action name
+/// (e.g. `"offsite"` for `backup.upload#offsite`), or `None` when no tag was
+/// present.  Factories that do not support per-tag config may ignore it.
+pub type ActionFactory = fn(&ProjectConfig, Option<&str>) -> Result<Box<dyn Action>, FrostxError>;
 
 /// All per-module static action registries.
 const ALL_REGISTRIES: &[&[(&str, ActionFactory)]] = &[
@@ -141,19 +145,28 @@ pub trait Action: Send + Sync {
 /// action only requires a new entry in the module's `REGISTRY` - no changes
 /// here.
 ///
+/// The `name` may include a `#tag` suffix (e.g. `"backup.upload#offsite"`).
+/// The tag is stripped before registry lookup and forwarded to the factory so
+/// it can resolve per-tag config overrides.  Dynamic categories
+/// (`hook.*`, `notify.*`) do not support tags.
+///
 /// # Errors
 ///
 /// Returns [`FrostxError::UnknownAction`] if `name` is not registered, or a
 /// config error if the action requires config that is absent.
 pub fn create(name: &str, config: &ProjectConfig) -> Result<Box<dyn Action>, FrostxError> {
+    let (base_name, tag) = name
+        .split_once('#')
+        .map_or((name, None), |(b, t)| (b, Some(t)));
+
     for registry in ALL_REGISTRIES {
         for (action_name, factory) in *registry {
-            if *action_name == name {
-                return factory(config);
+            if *action_name == base_name {
+                return factory(config, tag);
             }
         }
     }
-    if let Some(notify_name) = name.strip_prefix("notify.") {
+    if let Some(notify_name) = base_name.strip_prefix("notify.") {
         let notify_cfg = config.config.notifies.get(notify_name).ok_or_else(|| {
             FrostxError::Config(format!(
                 "notify '{notify_name}' not defined in [config.notify.{notify_name}]"
@@ -161,7 +174,7 @@ pub fn create(name: &str, config: &ProjectConfig) -> Result<Box<dyn Action>, Fro
         })?;
         return Ok(Box::new(notify::Notify::new(notify_cfg.clone())));
     }
-    if let Some(hook_name) = name.strip_prefix("hook.") {
+    if let Some(hook_name) = base_name.strip_prefix("hook.") {
         let hook_cfg = config.config.hooks.get(hook_name).ok_or_else(|| {
             FrostxError::Config(format!(
                 "hook '{hook_name}' not defined in [config.hook.{hook_name}]"

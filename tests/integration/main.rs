@@ -1,3 +1,4 @@
+mod action_tag;
 mod archive;
 mod check;
 mod doctor;

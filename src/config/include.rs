@@ -396,6 +396,7 @@ server = "rsync://included-server/"
         cfg.include = vec!["base".into()];
         cfg.config.backup = Some(super::super::project::BackupConfig {
             server: "rsync://local-server/".into(),
+            overrides: std::collections::HashMap::new(),
         });
 
         let result = resolve_includes(cfg, tmp.path(), tmp.path()).unwrap();

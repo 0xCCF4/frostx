@@ -4,9 +4,15 @@ use crate::error::FrostxError;
 
 /// Static registration of all backup actions.
 pub const REGISTRY: &[(&str, ActionFactory)] = &[
-    ("backup.check", |config| Ok(Box::new(Check::new(config)?))),
-    ("backup.upload", |config| Ok(Box::new(Upload::new(config)?))),
-    ("backup.verify", |config| Ok(Box::new(Verify::new(config)?))),
+    ("backup.check", |config, tag| {
+        Ok(Box::new(Check::new(config, tag)?))
+    }),
+    ("backup.upload", |config, tag| {
+        Ok(Box::new(Upload::new(config, tag)?))
+    }),
+    ("backup.verify", |config, tag| {
+        Ok(Box::new(Verify::new(config, tag)?))
+    }),
 ];
 use std::path::PathBuf;
 
@@ -34,13 +40,16 @@ pub struct Check {
 }
 
 impl Check {
-    /// Construct from project config.
+    /// Construct from project config, applying any override for `tag`.
     ///
     /// # Errors
     ///
     /// Returns an error if `[config.backup]` is absent from the project config.
-    pub fn new(config: &crate::config::project::ProjectConfig) -> Result<Self, FrostxError> {
-        let server = config.require_backup()?.server.clone();
+    pub fn new(
+        config: &crate::config::project::ProjectConfig,
+        tag: Option<&str>,
+    ) -> Result<Self, FrostxError> {
+        let server = config.resolve_backup(tag)?.server;
         Ok(Self { server })
     }
 }
@@ -72,13 +81,16 @@ pub struct Upload {
 }
 
 impl Upload {
-    /// Construct from project config.
+    /// Construct from project config, applying any override for `tag`.
     ///
     /// # Errors
     ///
     /// Returns an error if `[config.backup]` is absent from the project config.
-    pub fn new(config: &crate::config::project::ProjectConfig) -> Result<Self, FrostxError> {
-        let server = config.require_backup()?.server.clone();
+    pub fn new(
+        config: &crate::config::project::ProjectConfig,
+        tag: Option<&str>,
+    ) -> Result<Self, FrostxError> {
+        let server = config.resolve_backup(tag)?.server;
         Ok(Self { server })
     }
 }
@@ -120,13 +132,16 @@ pub struct Verify {
 }
 
 impl Verify {
-    /// Construct from project config.
+    /// Construct from project config, applying any override for `tag`.
     ///
     /// # Errors
     ///
     /// Returns an error if `[config.backup]` is absent from the project config.
-    pub fn new(config: &crate::config::project::ProjectConfig) -> Result<Self, FrostxError> {
-        let server = config.require_backup()?.server.clone();
+    pub fn new(
+        config: &crate::config::project::ProjectConfig,
+        tag: Option<&str>,
+    ) -> Result<Self, FrostxError> {
+        let server = config.resolve_backup(tag)?.server;
         Ok(Self { server })
     }
 }

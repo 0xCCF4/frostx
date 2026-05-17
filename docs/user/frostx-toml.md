@@ -131,8 +131,10 @@ actions = ["git.check_clean", "git.check_pushed", "backup.check"]
 | `actions` | array of strings | yes      | —       | Ordered list of action names to execute                                         |
 | `once`    | bool             | no       | `false` | When `true`, the rule is permanently sealed after one fully successful run      |
 
-Action names are either built-in (`git.check_clean`, `archive.compress`, ...) or group references (`group.<name>`) or hook
-references (`hook.<name>`). See [actions.md](actions.md) for the full list.
+Action names are either built-in (`git.check_clean`, `archive.compress`, ...), group references (`group.<name>`), or hook
+references (`hook.<name>`). Built-in actions in the `backup.*`, `archive.*`, `fs.*`, and `vcs.*` categories also accept
+a `#tag` suffix (e.g., `backup.upload#offsite`) to select a named override entry from the config. See
+[actions.md](actions.md) for the full list and override details.
 
 ### `once = true`
 
@@ -292,6 +294,9 @@ backup_server = "rsync://backup.example.com/projects"
 [config.backup]
 server = "rsync://backup.example.com/projects"
 
+[config.backup.overrides.offsite]
+server = "rsync://offsite.example.com/projects"
+
 [config.archive]
 compression = "zstd"
 
@@ -322,8 +327,10 @@ actions = [
     "git.clean",
     "git.tag",
     "archive.compress",
-    "backup.upload",
+    "backup.upload",           # uploads to primary server
+    "backup.upload#offsite",   # uploads to offsite override
     "backup.verify",
+    "backup.verify#offsite",
     "local.delete",
 ]
 ```

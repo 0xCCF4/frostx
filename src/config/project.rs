@@ -67,6 +67,45 @@ pub struct VcsConfig {
     /// Default: `false` - fail when no VCS repository is found.
     #[serde(default)]
     pub skip_if_no_vcs: bool,
+
+    /// Per-tag overrides applied when the action is referenced with a `#tag` suffix.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub overrides: std::collections::HashMap<String, VcsConfigOverride>,
+}
+
+impl VcsConfig {
+    /// Merge-patch the base config with the override entry for `tag`.
+    ///
+    /// If `tag` is `None` or no entry exists for it, the base config is returned unchanged.
+    #[must_use]
+    pub fn resolve(&self, tag: Option<&str>) -> ResolvedVcsConfig {
+        let ov = tag.and_then(|t| self.overrides.get(t));
+        ResolvedVcsConfig {
+            skip_if_no_vcs: ov
+                .and_then(|o| o.skip_if_no_vcs)
+                .unwrap_or(self.skip_if_no_vcs),
+        }
+    }
+}
+
+/// Partial `[config.vcs]` values used for per-tag merge-patch overrides.
+///
+/// Every field is optional; absent fields fall back to the base
+/// `[config.vcs]` value when [`VcsConfig::resolve`] is called.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VcsConfigOverride {
+    /// Override for [`VcsConfig::skip_if_no_vcs`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_if_no_vcs: Option<bool>,
+}
+
+/// Fully resolved vcs configuration after merge-patching any `#tag` override.
+///
+/// Produced by [`VcsConfig::resolve`]; contains no optional fields.
+#[derive(Debug, Clone)]
+pub struct ResolvedVcsConfig {
+    /// Whether to skip silently when no VCS is detected, after override resolution.
+    pub skip_if_no_vcs: bool,
 }
 
 /// `[config.notify.<name>]` section - configures a named user notification that
@@ -82,6 +121,49 @@ pub struct NotifyConfig {
 pub struct BackupConfig {
     /// Backup server URL. Supported schemes: `rsync://`, `ssh://`.
     pub server: String,
+
+    /// Per-tag overrides applied when an action is referenced with a `#tag`
+    /// suffix (e.g. `backup.upload#offsite`).  Only the fields present in the
+    /// override entry replace the corresponding base-config values; absent
+    /// fields inherit from `[config.backup]`.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub overrides: std::collections::HashMap<String, BackupConfigOverride>,
+}
+
+/// Partial `[config.backup]` values used for per-tag merge-patch overrides.
+///
+/// Every field is optional; absent fields fall back to the base
+/// `[config.backup]` value when [`BackupConfig::resolve`] is called.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupConfigOverride {
+    /// Override for [`BackupConfig::server`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+}
+
+impl BackupConfig {
+    /// Merge-patch the base config with the override entry for `tag`.
+    ///
+    /// If `tag` is `None` or no override entry exists for it, the base
+    /// config is returned unchanged.
+    #[must_use]
+    pub fn resolve(&self, tag: Option<&str>) -> ResolvedBackupConfig {
+        let ov = tag.and_then(|t| self.overrides.get(t));
+        ResolvedBackupConfig {
+            server: ov
+                .and_then(|o| o.server.clone())
+                .unwrap_or_else(|| self.server.clone()),
+        }
+    }
+}
+
+/// Fully resolved backup configuration after merge-patching any `#tag` override.
+///
+/// Produced by [`BackupConfig::resolve`]; contains no optional fields.
+#[derive(Debug, Clone)]
+pub struct ResolvedBackupConfig {
+    /// Backup server URL after override resolution.
+    pub server: String,
 }
 
 /// `[config.archive]` section - controls how `archive.compress` compresses the project.
@@ -89,12 +171,17 @@ pub struct BackupConfig {
 pub struct ArchiveConfig {
     #[serde(default = "ArchiveConfig::default_compression")]
     pub compression: Compression,
+
+    /// Per-tag overrides applied when the action is referenced with a `#tag` suffix.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub overrides: std::collections::HashMap<String, ArchiveConfigOverride>,
 }
 
 impl Default for ArchiveConfig {
     fn default() -> Self {
         Self {
             compression: Compression::Gz,
+            overrides: std::collections::HashMap::new(),
         }
     }
 }
@@ -103,6 +190,39 @@ impl ArchiveConfig {
     fn default_compression() -> Compression {
         Compression::Gz
     }
+
+    /// Merge-patch the base config with the override entry for `tag`.
+    ///
+    /// If `tag` is `None` or no entry exists for it, the base config is returned unchanged.
+    #[must_use]
+    pub fn resolve(&self, tag: Option<&str>) -> ResolvedArchiveConfig {
+        let ov = tag.and_then(|t| self.overrides.get(t));
+        ResolvedArchiveConfig {
+            compression: ov
+                .and_then(|o| o.compression.clone())
+                .unwrap_or_else(|| self.compression.clone()),
+        }
+    }
+}
+
+/// Partial `[config.archive]` values used for per-tag merge-patch overrides.
+///
+/// Every field is optional; absent fields fall back to the base
+/// `[config.archive]` value when [`ArchiveConfig::resolve`] is called.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArchiveConfigOverride {
+    /// Override for [`ArchiveConfig::compression`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compression: Option<Compression>,
+}
+
+/// Fully resolved archive configuration after merge-patching any `#tag` override.
+///
+/// Produced by [`ArchiveConfig::resolve`]; contains no optional fields.
+#[derive(Debug, Clone)]
+pub struct ResolvedArchiveConfig {
+    /// Compression algorithm after override resolution.
+    pub compression: Compression,
 }
 
 /// Compression algorithm for `archive.compress`.
@@ -138,6 +258,53 @@ pub struct FsConfig {
     pub extra_paths: Vec<String>,
     /// Per-cleaner enable flags. All cleaners are enabled by default.
     #[serde(default)]
+    pub cleaners: CleanersConfig,
+
+    /// Per-tag overrides applied when the action is referenced with a `#tag` suffix.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub overrides: std::collections::HashMap<String, FsConfigOverride>,
+}
+
+impl FsConfig {
+    /// Merge-patch the base config with the override entry for `tag`.
+    ///
+    /// If `tag` is `None` or no entry exists for it, the base config is returned unchanged.
+    #[must_use]
+    pub fn resolve(&self, tag: Option<&str>) -> ResolvedFsConfig {
+        let ov = tag.and_then(|t| self.overrides.get(t));
+        ResolvedFsConfig {
+            extra_paths: ov
+                .and_then(|o| o.extra_paths.clone())
+                .unwrap_or_else(|| self.extra_paths.clone()),
+            cleaners: ov
+                .and_then(|o| o.cleaners.clone())
+                .unwrap_or_else(|| self.cleaners.clone()),
+        }
+    }
+}
+
+/// Partial `[config.fs]` values used for per-tag merge-patch overrides.
+///
+/// Every field is optional; absent fields fall back to the base
+/// `[config.fs]` value when [`FsConfig::resolve`] is called.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FsConfigOverride {
+    /// Override for [`FsConfig::extra_paths`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_paths: Option<Vec<String>>,
+    /// Override for [`FsConfig::cleaners`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleaners: Option<CleanersConfig>,
+}
+
+/// Fully resolved fs configuration after merge-patching any `#tag` override.
+///
+/// Produced by [`FsConfig::resolve`]; contains no optional fields.
+#[derive(Debug, Clone)]
+pub struct ResolvedFsConfig {
+    /// Extra paths to remove after override resolution.
+    pub extra_paths: Vec<String>,
+    /// Cleaner flags after override resolution.
     pub cleaners: CleanersConfig,
 }
 
@@ -251,7 +418,10 @@ impl ProjectConfig {
             .collect()
     }
 
-    /// Return the `[config.backup]` section or an error if missing.
+    /// Return the raw `[config.backup]` section or an error if missing.
+    ///
+    /// Prefer [`Self::resolve_backup`] when constructing actions so that
+    /// per-tag overrides are applied automatically.
     ///
     /// # Errors
     ///
@@ -261,6 +431,57 @@ impl ProjectConfig {
             .backup
             .as_ref()
             .ok_or(crate::error::FrostxError::BackupConfigMissing)
+    }
+
+    /// Resolve backup config for the given `#tag`, applying any matching
+    /// override entry as a merge-patch over the base `[config.backup]` values.
+    ///
+    /// Pass `tag = None` to get the base config without any override.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::error::FrostxError::BackupConfigMissing`] if `[config.backup]` is absent.
+    pub fn resolve_backup(
+        &self,
+        tag: Option<&str>,
+    ) -> Result<ResolvedBackupConfig, crate::error::FrostxError> {
+        Ok(self.require_backup()?.resolve(tag))
+    }
+
+    /// Resolve archive config for the given `#tag`, applying any matching
+    /// override entry as a merge-patch over the base `[config.archive]` values.
+    ///
+    /// Falls back to [`ArchiveConfig::default`] when `[config.archive]` is absent.
+    #[must_use]
+    pub fn resolve_archive(&self, tag: Option<&str>) -> ResolvedArchiveConfig {
+        self.config
+            .archive
+            .as_ref()
+            .map_or_else(|| ArchiveConfig::default().resolve(tag), |a| a.resolve(tag))
+    }
+
+    /// Resolve fs config for the given `#tag`, applying any matching override
+    /// entry as a merge-patch over the base `[config.fs]` values.
+    ///
+    /// Falls back to [`FsConfig::default`] when `[config.fs]` is absent.
+    #[must_use]
+    pub fn resolve_fs(&self, tag: Option<&str>) -> ResolvedFsConfig {
+        self.config
+            .fs
+            .as_ref()
+            .map_or_else(|| FsConfig::default().resolve(tag), |f| f.resolve(tag))
+    }
+
+    /// Resolve vcs config for the given `#tag`, applying any matching override
+    /// entry as a merge-patch over the base `[config.vcs]` values.
+    ///
+    /// Falls back to [`VcsConfig::default`] when `[config.vcs]` is absent.
+    #[must_use]
+    pub fn resolve_vcs(&self, tag: Option<&str>) -> ResolvedVcsConfig {
+        self.config
+            .vcs
+            .as_ref()
+            .map_or_else(|| VcsConfig::default().resolve(tag), |v| v.resolve(tag))
     }
 }
 
@@ -409,5 +630,59 @@ mod tests {
         assert_eq!(Compression::Gz.extension(), "tar.gz");
         assert_eq!(Compression::Zstd.extension(), "tar.zst");
         assert_eq!(Compression::Xz.extension(), "tar.xz");
+    }
+
+    #[test]
+    fn backup_resolve_no_tag_returns_base() {
+        let cfg = BackupConfig {
+            server: "rsync://base.example.com/".into(),
+            overrides: std::collections::HashMap::new(),
+        };
+        assert_eq!(cfg.resolve(None).server, "rsync://base.example.com/");
+    }
+
+    #[test]
+    fn backup_resolve_unknown_tag_falls_back_to_base() {
+        let cfg = BackupConfig {
+            server: "rsync://base.example.com/".into(),
+            overrides: std::collections::HashMap::new(),
+        };
+        assert_eq!(
+            cfg.resolve(Some("nonexistent")).server,
+            "rsync://base.example.com/"
+        );
+    }
+
+    #[test]
+    fn backup_resolve_tag_overrides_server() {
+        let mut cfg = BackupConfig {
+            server: "rsync://base.example.com/".into(),
+            overrides: std::collections::HashMap::new(),
+        };
+        cfg.overrides.insert(
+            "offsite".into(),
+            BackupConfigOverride {
+                server: Some("rsync://offsite.example.com/".into()),
+            },
+        );
+        assert_eq!(
+            cfg.resolve(Some("offsite")).server,
+            "rsync://offsite.example.com/"
+        );
+        assert_eq!(cfg.resolve(None).server, "rsync://base.example.com/");
+    }
+
+    #[test]
+    fn backup_resolve_tag_with_absent_server_inherits_base() {
+        let mut cfg = BackupConfig {
+            server: "rsync://base.example.com/".into(),
+            overrides: std::collections::HashMap::new(),
+        };
+        cfg.overrides
+            .insert("partial".into(), BackupConfigOverride { server: None });
+        assert_eq!(
+            cfg.resolve(Some("partial")).server,
+            "rsync://base.example.com/"
+        );
     }
 }
