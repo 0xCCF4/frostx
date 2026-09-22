@@ -1,6 +1,6 @@
 [package]
 name = "frostx"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = """frostx monitors project directories for inactivity. Once a configured inactivity threshold elapses (e.g. "90 days since any file was modified"), frostx executes a pipeline of **actions** - e.g., checking git state, creating archives, uploading backups, deleting local copies. Automating the lifecycle of projects, frostx helps users manage disk space and maintain a clean workspace."""
 license = "GPL-3.0-or-later"
